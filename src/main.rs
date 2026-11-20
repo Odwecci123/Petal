@@ -44,14 +44,16 @@ enum Tool {
     History,
     Passwords,
     Settings,
+    Downloads,
 }
 
-/// Эти окна открываются из меню с тремя точками, остальные из меню со стикером.
+/// Эти окна открываются из меню с тремя точками. «Загрузки» открываются кнопкой внизу колонки вкладок,
+/// остальные окна из меню со стикером.
 fn in_dots(t: Tool) -> bool {
     matches!(t, Tool::History | Tool::Passwords | Tool::Settings)
 }
 
-const TOOLS: [(Tool, &str, Color32); 7] = [
+const TOOLS: [(Tool, &str, Color32); 8] = [
     (Tool::Sounds, "Саундпад", ORANGE),
     (Tool::Calc, "Калькулятор", LINK),
     (Tool::Random, "Случайные числа", YELLOW),
@@ -59,6 +61,7 @@ const TOOLS: [(Tool, &str, Color32); 7] = [
     (Tool::History, "История", LINK),
     (Tool::Passwords, "Пароли", YELLOW),
     (Tool::Settings, "Настройки", MUTED),
+    (Tool::Downloads, "Загрузки", GREEN),
 ];
 
 // ───────────────────────── Случайные числа ─────────────────────────
@@ -389,6 +392,15 @@ fn draw_wheel(ui: &mut egui::Ui, items: &[String], angle: f64, size: f32) -> boo
 
 // ───────────────────────── Встроенный браузер ─────────────────────────
 
+/// События загрузок из браузера: обработчики складывают их сюда, программа разбирает каждый кадр.
+#[cfg_attr(not(windows), allow(dead_code))]
+enum DlEvent {
+    Started { url: String, path: PathBuf },
+    Done { url: String, path: Option<PathBuf>, ok: bool },
+}
+
+static DL_EVENTS: Mutex<Vec<DlEvent>> = Mutex::new(Vec::new());
+
 const HOME_URL: &str = "https://www.google.com/";
 
 fn url_encode(s: &str) -> String {
@@ -419,9 +431,13 @@ fn normalize_url(input: &str) -> String {
 #[cfg(windows)]
 mod web {
     use std::sync::mpsc::Sender;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
     use wry::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
-    use wry::{NewWindowResponse, Rect, WebView, WebViewBuilder};
+    use wry::{NewWindowResponse, Rect, WebView, WebViewBuilder, WebViewBuilderExtWindows};
+    use super::{DlEvent, DL_EVENTS};
+
+    const FULLSCREEN_JS: &str = "(function(){function s(){try{window.ipc.postMessage(document.fullscreenElement?'petal:fs:1':'petal:fs:0');}catch(e){}}document.addEventListener('fullscreenchange',s);document.addEventListener('webkitfullscreenchange',s);})();";
 
     pub struct Browser {
         webview: WebView,
@@ -444,9 +460,31 @@ mod web {
             title: Arc<Mutex<String>>,
             new_tabs: Sender<String>,
             incognito: bool,
+            fullscreen: Arc<AtomicBool>,
         ) -> Result<Self, String> {
             let webview = WebViewBuilder::new()
+                // Страница сообщает, когда её элемент (например, видео на YouTube) уходит на весь экран.
+                .with_initialization_script(FULLSCREEN_JS)
+                .with_ipc_handler(move |req| match req.body().as_str() {
+                    "petal:fs:1" => fullscreen.store(true, Ordering::Relaxed),
+                    "petal:fs:0" => fullscreen.store(false, Ordering::Relaxed),
+                    _ => {}
+                })
                 .with_incognito(incognito)
+                // Тёмный фон до загрузки страницы и тёмная тема для сайтов, которые её поддерживают.
+                .with_background_color((31, 31, 31, 255))
+                .with_theme(wry::Theme::Dark)
+                .with_download_started_handler(|url, path| {
+                    if let Ok(mut q) = DL_EVENTS.lock() {
+                        q.push(DlEvent::Started { url, path: path.clone() });
+                    }
+                    true
+                })
+                .with_download_completed_handler(|url, path, ok| {
+                    if let Ok(mut q) = DL_EVENTS.lock() {
+                        q.push(DlEvent::Done { url, path, ok });
+                    }
+                })
                 .with_url(url)
                 .with_bounds(rect(bounds))
                 .with_document_title_changed_handler(move |t| {
@@ -511,6 +549,7 @@ mod web {
             _: Arc<Mutex<String>>,
             _: Sender<String>,
             _: bool,
+            _: Arc<std::sync::atomic::AtomicBool>,
         ) -> Result<Self, String> {
             Err("Встроенный браузер работает только в Windows.".to_string())
         }
@@ -875,6 +914,47 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
     resp
 }
 
+/// Зелёная кнопка «Загрузки» внизу колонки вкладок: стрелка вниз над лотком и счётчик активных загрузок.
+fn downloads_button(ui: &mut egui::Ui, active: usize) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let fill = if resp.hovered() { Color32::from_rgb(150, 215, 168) } else { GREEN };
+    let dark = Color32::from_rgb(24, 46, 31);
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::same(12), fill);
+    let c = rect.left_center() + Vec2::new(24.0, 0.0);
+    let st = Stroke::new(2.2_f32, dark);
+    p.line_segment([c + Vec2::new(0.0, -8.0), c + Vec2::new(0.0, 3.0)], st);
+    p.line_segment([c + Vec2::new(-5.0, -2.0), c + Vec2::new(0.0, 3.5)], st);
+    p.line_segment([c + Vec2::new(5.0, -2.0), c + Vec2::new(0.0, 3.5)], st);
+    p.line_segment([c + Vec2::new(-8.0, 8.0), c + Vec2::new(8.0, 8.0)], st);
+    p.line_segment([c + Vec2::new(-8.0, 3.0), c + Vec2::new(-8.0, 8.0)], st);
+    p.line_segment([c + Vec2::new(8.0, 3.0), c + Vec2::new(8.0, 8.0)], st);
+    let label = if active > 0 { format!("Загрузки ({active})") } else { "Загрузки".to_string() };
+    p.text(rect.left_center() + Vec2::new(46.0, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(15.0), dark);
+    resp
+}
+
+/// Открывает файл программой по умолчанию (macOS и Linux нужны только для разработки).
+fn open_path(path: &str) {
+    #[cfg(windows)]
+    let _ = std::process::Command::new("explorer").arg(path).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(path).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+}
+
+/// Показывает файл в папке (на Windows сразу выделяет его).
+fn reveal_path(path: &str) {
+    #[cfg(windows)]
+    let _ = std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn();
+    #[cfg(not(windows))]
+    if let Some(dir) = Path::new(path).parent() {
+        open_path(&dir.to_string_lossy());
+    }
+}
+
 /// Круглая кнопка с тремя точками (меню браузера).
 fn dots_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
@@ -1230,6 +1310,8 @@ struct Pane {
     title: Arc<Mutex<String>>,
     new_tx: mpsc::Sender<String>,
     new_rx: mpsc::Receiver<String>,
+    /// Страница просит показать её на весь экран (видео на YouTube и т. п.).
+    fs: Arc<AtomicBool>,
     /// Адрес страницы, спрошенный у браузера недавно (спрашивать каждый кадр дорого).
     url_cache: std::cell::RefCell<Option<(Instant, Option<String>)>>,
     /// Вкладка инкогнито: ничего не пишется ни в историю, ни в сессию.
@@ -1252,6 +1334,7 @@ impl Pane {
             title: Arc::new(Mutex::new(String::new())),
             new_tx,
             new_rx,
+            fs: Arc::new(AtomicBool::new(false)),
             url_cache: std::cell::RefCell::new(None),
             incognito: false,
             logged_url: String::new(),
@@ -1275,7 +1358,7 @@ impl Pane {
         let ppp = ui.ctx().pixels_per_point();
         let bounds = [rect.min.x * ppp, rect.min.y * ppp, rect.width() * ppp, rect.height() * ppp];
         if self.view.is_none() && self.error.is_empty() {
-            match web::Browser::new(frame, &self.start_url, bounds, self.title.clone(), self.new_tx.clone(), self.incognito) {
+            match web::Browser::new(frame, &self.start_url, bounds, self.title.clone(), self.new_tx.clone(), self.incognito, self.fs.clone()) {
                 Ok(b) => {
                     self.view = Some(b);
                     self.rect = Some(bounds);
@@ -1404,8 +1487,11 @@ struct App {
     addr_focused: bool,
     tools_open: bool,
     /// Какие окна функций открыты (в порядке TOOLS).
-    tool_win: [bool; 7],
+    tool_win: [bool; 8],
     dots_open: bool,
+    /// Сейчас окно на весь экран из-за страницы; адрес, с которого это началось.
+    page_fs: bool,
+    fs_url: String,
     rng: Rng,
 
     bcfg: store::BrowserCfg,
@@ -1419,6 +1505,7 @@ struct App {
     persist_at: Instant,
     vault: VaultUi,
     settings_status: String,
+    downloads: Vec<store::Download>,
 
     calc_input: String,
     calc_error: String,
@@ -1476,8 +1563,10 @@ impl App {
             addr: String::new(),
             addr_focused: false,
             tools_open: false,
-            tool_win: [false; 7],
+            tool_win: [false; 8],
             dots_open: false,
+            page_fs: false,
+            fs_url: String::new(),
             rng: Rng::new(),
 
             saved_bcfg: bcfg.clone(),
@@ -1491,6 +1580,7 @@ impl App {
             persist_at: Instant::now(),
             vault: VaultUi { exists: std::path::Path::new(store::VAULT_FILE).exists(), ..Default::default() },
             settings_status: String::new(),
+            downloads: store::load_downloads(),
 
             calc_input: String::new(),
             calc_error: String::new(),
@@ -1668,6 +1758,8 @@ impl App {
         let mut select: Option<usize> = None;
         let mut close: Option<usize> = None;
         let mut new_tab = false;
+        let mut open_downloads = false;
+        let active_downloads = self.downloads.iter().filter(|d| d.state == store::DL_ACTIVE).count();
         egui::SidePanel::left("tabs")
             .exact_width(220.0)
             .resizable(false)
@@ -1685,6 +1777,12 @@ impl App {
                     new_tab = true;
                 }
                 ui.add_space(8.0);
+                egui::TopBottomPanel::bottom("tabs_bottom").frame(Frame::NONE).show_inside(ui, |ui| {
+                    ui.add_space(6.0);
+                    if downloads_button(ui, active_downloads).clicked() {
+                        open_downloads = true;
+                    }
+                });
                 ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
                     for (i, tab) in self.tabs.iter().enumerate() {
@@ -1731,6 +1829,12 @@ impl App {
                     }
                 });
             });
+        if open_downloads {
+            let i = TOOLS.iter().position(|t| t.0 == Tool::Downloads).unwrap_or(0);
+            self.tool_win[i] = true;
+            let id = egui::ViewportId::from_hash_of(("tool", TOOLS[i].1));
+            ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
+        }
         if new_tab {
             self.open_tab(&normalize_url(&self.bcfg.home.clone()));
         } else if let Some(i) = close {
@@ -1753,7 +1857,7 @@ impl App {
                 ui.label(RichText::new("Функции").size(13.0).color(MUTED));
                 ui.add_space(4.0);
                 for (i, (tool, name, color)) in TOOLS.iter().enumerate() {
-                    if in_dots(*tool) {
+                    if in_dots(*tool) || *tool == Tool::Downloads {
                         continue;
                     }
                     let text = RichText::new(name.to_string()).size(15.0).color(if self.tool_win[i] { *color } else { TEXT });
@@ -1799,6 +1903,7 @@ impl App {
                 Tool::History => (600.0, 680.0),
                 Tool::Passwords => (560.0, 720.0),
                 Tool::Settings => (560.0, 520.0),
+                Tool::Downloads => (600.0, 560.0),
             };
             let id = egui::ViewportId::from_hash_of(("tool", name));
             let builder = egui::ViewportBuilder::default()
@@ -1819,6 +1924,7 @@ impl App {
                         Tool::History => self.history_ui(ui),
                         Tool::Passwords => self.passwords_ui(ui),
                         Tool::Settings => self.settings_ui(ui),
+                        Tool::Downloads => self.downloads_ui(ui),
                     });
                 });
                 if ctx.input(|i| i.viewport().close_requested()) {
@@ -1866,6 +1972,25 @@ impl App {
             self.dots_open = false;
             let id = egui::ViewportId::from_hash_of(("tool", TOOLS[i].1));
             ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
+        }
+    }
+
+    /// Страница ушла на весь экран (кнопка «развернуть» у видео): прячем панели и разворачиваем окно,
+    /// чтобы по краям не оставалось полос. Выход из полноэкранного режима страницы возвращает всё назад.
+    fn update_page_fullscreen(&mut self, ctx: &egui::Context) {
+        let want = self.tabs[self.active].fs.load(Ordering::Relaxed);
+        if want && !self.page_fs {
+            self.page_fs = true;
+            self.fs_url = self.tabs[self.active].current_url();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        } else if self.page_fs {
+            // Запасной выход: если ушли на другой сайт, а сообщения о выходе не пришло, не остаёмся без панелей.
+            let moved = host_of(&self.tabs[self.active].current_url()) != host_of(&self.fs_url);
+            if !want || moved {
+                self.page_fs = false;
+                self.tabs[self.active].fs.store(false, Ordering::Relaxed);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+            }
         }
     }
 
@@ -1966,6 +2091,76 @@ impl App {
         if self.bcfg != self.saved_bcfg {
             store::save_cfg(&self.bcfg);
             self.saved_bcfg = self.bcfg.clone();
+        }
+    }
+
+    // ── загрузки ──
+
+    fn drain_downloads(&mut self) {
+        let events = match DL_EVENTS.lock() {
+            Ok(mut q) if !q.is_empty() => std::mem::take(&mut *q),
+            _ => return,
+        };
+        for ev in events {
+            match ev {
+                DlEvent::Started { url, path } => {
+                    self.downloads.push(store::Download {
+                        at: store::now_secs(),
+                        state: store::DL_ACTIVE,
+                        path: path.to_string_lossy().to_string(),
+                        url,
+                    });
+                }
+                DlEvent::Done { url, path, ok } => {
+                    if let Some(d) = self.downloads.iter_mut().rev().find(|d| d.url == url && d.state == store::DL_ACTIVE) {
+                        d.state = if ok { store::DL_DONE } else { store::DL_FAILED };
+                        if let Some(p) = path.filter(|p| !p.as_os_str().is_empty()) {
+                            d.path = p.to_string_lossy().to_string();
+                        }
+                    }
+                }
+            }
+        }
+        store::save_downloads(&self.downloads);
+    }
+
+    fn downloads_ui(&mut self, ui: &mut egui::Ui) {
+        header(ui, "Загрузки", "Файлы, скачанные в Petal. Папка загрузок обычная, «Загрузки» в Windows.");
+        if !self.downloads.is_empty() && pill_button(ui, "Очистить список").clicked() {
+            self.downloads.clear();
+            store::save_downloads(&self.downloads);
+        }
+        ui.add_space(8.0);
+        if self.downloads.is_empty() {
+            ui.label(RichText::new("Пока ничего не скачано.").color(MUTED));
+        }
+        let now = store::now_secs();
+        for d in self.downloads.iter().rev().take(100) {
+            card(ui, |ui| {
+                ui.label(RichText::new(d.name()).size(16.0).color(LINK));
+                let exists = Path::new(&d.path).exists();
+                let status = match d.state {
+                    store::DL_ACTIVE => "скачивается…".to_string(),
+                    store::DL_FAILED => "не удалось скачать".to_string(),
+                    _ if !exists => "файл удалён или перемещён".to_string(),
+                    _ => store::ago(now, d.at),
+                };
+                ui.label(RichText::new(status).size(13.0).color(MUTED));
+                if d.state == store::DL_DONE && exists {
+                    ui.add_space(4.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if store::is_risky_file(&d.path) {
+                            ui.label(RichText::new("Программы запускайте сами из папки.").size(13.0).color(YELLOW));
+                        } else if pill_button(ui, "Открыть").clicked() {
+                            open_path(&d.path);
+                        }
+                        if pill_button(ui, "Показать в папке").clicked() {
+                            reveal_path(&d.path);
+                        }
+                    });
+                }
+            });
+            ui.add_space(6.0);
         }
     }
 
@@ -3315,6 +3510,7 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.drain_new_tabs();
+        self.drain_downloads();
         self.audio_sync();
         self.players.retain(|p| !p.empty());
         if !self.players.is_empty() {
@@ -3322,14 +3518,18 @@ impl eframe::App for App {
         }
         self.sound_keys(ctx);
 
-        // Верхняя полоса идёт первой, чтобы тянуться на всю ширину окна.
-        self.top_bar(ctx);
-        self.tabs_panel(ctx);
-        if self.tools_open {
-            self.tools_menu(ctx);
-        }
-        if self.dots_open {
-            self.dots_menu(ctx);
+        self.update_page_fullscreen(ctx);
+
+        if !self.page_fs {
+            // Верхняя полоса идёт первой, чтобы тянуться на всю ширину окна.
+            self.top_bar(ctx);
+            self.tabs_panel(ctx);
+            if self.tools_open {
+                self.tools_menu(ctx);
+            }
+            if self.dots_open {
+                self.dots_menu(ctx);
+            }
         }
         self.tool_windows(ctx);
 

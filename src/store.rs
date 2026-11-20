@@ -10,6 +10,7 @@ pub const BROWSER_FILE: &str = "petal_browser.txt";
 pub const SESSION_FILE: &str = "petal_session.txt";
 pub const HISTORY_FILE: &str = "petal_history.txt";
 pub const VAULT_FILE: &str = "petal_passwords.bin";
+pub const DOWNLOADS_FILE: &str = "petal_downloads.txt";
 
 pub const MAX_HISTORY: usize = 3000;
 const MAX_TABS: usize = 40;
@@ -219,6 +220,71 @@ pub fn ago(now: u64, at: u64) -> String {
     }
 }
 
+// ───────────── Загрузки ─────────────
+
+pub const DL_ACTIVE: u8 = 0;
+pub const DL_DONE: u8 = 1;
+pub const DL_FAILED: u8 = 2;
+const MAX_DOWNLOADS: usize = 200;
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct Download {
+    pub at: u64,
+    pub state: u8,
+    pub path: String,
+    pub url: String,
+}
+
+impl Download {
+    /// Имя файла без папки.
+    pub fn name(&self) -> String {
+        self.path.rsplit(['\\', '/']).next().unwrap_or(&self.path).to_string()
+    }
+}
+
+pub fn downloads_to_text(v: &[Download]) -> String {
+    let mut s = String::new();
+    for d in v {
+        s.push_str(&format!("{}\t{}\t{}\t{}\n", d.at, d.state, esc(&d.path), esc(&d.url)));
+    }
+    s
+}
+
+/// Загрузка, которая не успела закончиться до закрытия программы, считается прерванной.
+pub fn downloads_from_text(s: &str) -> Vec<Download> {
+    let mut v: Vec<Download> = s
+        .lines()
+        .filter_map(|l| {
+            let mut p = l.splitn(4, '\t');
+            let at = p.next()?.parse().ok()?;
+            let state: u8 = p.next()?.parse().ok()?;
+            let path = unesc(p.next()?);
+            let url = unesc(p.next().unwrap_or(""));
+            (!path.is_empty()).then_some(Download { at, state: if state == DL_ACTIVE { DL_FAILED } else { state }, path, url })
+        })
+        .collect();
+    if v.len() > MAX_DOWNLOADS {
+        let extra = v.len() - MAX_DOWNLOADS;
+        v.drain(..extra);
+    }
+    v
+}
+
+pub fn load_downloads() -> Vec<Download> {
+    std::fs::read_to_string(DOWNLOADS_FILE).map(|s| downloads_from_text(&s)).unwrap_or_default()
+}
+
+pub fn save_downloads(v: &[Download]) {
+    let _ = std::fs::write(DOWNLOADS_FILE, downloads_to_text(v));
+}
+
+/// Программы и сценарии из интернета не запускаем одним щелчком: их можно только показать в папке.
+pub fn is_risky_file(path: &str) -> bool {
+    let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
+    ["exe", "msi", "bat", "cmd", "com", "scr", "ps1", "vbs", "vbe", "js", "jse", "wsf", "hta", "lnk", "reg", "jar", "msix", "appx"]
+        .contains(&ext.as_str())
+}
+
 // ───────────── Пароли ─────────────
 
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -346,6 +412,28 @@ pub fn generate_password(len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downloads_roundtrip_and_interrupted() {
+        let v = vec![
+            Download { at: 5, state: DL_DONE, path: "C:\\Users\\a\\Downloads\\файл\tодин.zip".into(), url: "https://x.ru/a.zip".into() },
+            Download { at: 9, state: DL_ACTIVE, path: "C:\\Downloads\\b.pdf".into(), url: String::new() },
+        ];
+        let back = downloads_from_text(&downloads_to_text(&v));
+        assert_eq!(back[0], v[0]);
+        assert_eq!(back[1].state, DL_FAILED); // не доехала до конца
+        assert_eq!(back[0].name(), "файл\tодин.zip");
+        assert_eq!(Download { at: 0, state: 1, path: "/home/a/b.txt".into(), url: String::new() }.name(), "b.txt");
+    }
+
+    #[test]
+    fn risky_files() {
+        assert!(is_risky_file("C:\\Downloads\\setup.EXE"));
+        assert!(is_risky_file("a.ps1"));
+        assert!(!is_risky_file("photo.png"));
+        assert!(!is_risky_file("report.pdf"));
+        assert!(!is_risky_file("noext"));
+    }
 
     #[test]
     fn data_dir_choice() {
