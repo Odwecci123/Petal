@@ -440,7 +440,10 @@ mod web {
 
     const PIP_JS: &str = r##"(function(){if(window.__petalPip)return;window.__petalPip=1;var b=null,v=null,t=0;
 function mk(){b=document.createElement('div');b.setAttribute('style','position:fixed;z-index:2147483647;width:34px;height:34px;border-radius:8px;background:rgba(30,30,34,.82);display:none;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4);');
-b.innerHTML='<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="12" rx="2"/><rect x="9.5" y="9" width="6" height="5" rx="1" fill="#fff"/></svg>';
+var N='http://www.w3.org/2000/svg',g=document.createElementNS(N,'svg');g.setAttribute('width','20');g.setAttribute('height','20');g.setAttribute('viewBox','0 0 20 20');g.setAttribute('fill','none');g.setAttribute('stroke','#fff');g.setAttribute('stroke-width','1.6');
+var r1=document.createElementNS(N,'rect');r1.setAttribute('x','2.5');r1.setAttribute('y','4');r1.setAttribute('width','15');r1.setAttribute('height','12');r1.setAttribute('rx','2');
+var r2=document.createElementNS(N,'rect');r2.setAttribute('x','9.5');r2.setAttribute('y','9');r2.setAttribute('width','6');r2.setAttribute('height','5');r2.setAttribute('rx','1');r2.setAttribute('fill','#fff');
+g.appendChild(r1);g.appendChild(r2);b.appendChild(g);
 b.addEventListener('click',function(e){e.stopPropagation();e.preventDefault();if(!v)return;if(mini){unmini();return;}try{if(document.pictureInPictureElement===v){document.exitPictureInPicture();return;}if(document.pictureInPictureEnabled){v.disablePictureInPicture=false;v.requestPictureInPicture().catch(function(){goMini();});return;}}catch(x){}goMini();},true);
 b.addEventListener('mousedown',function(e){e.stopPropagation();},true);}
 function place(){if(!v||!v.isConnected){hide();return;}var r=v.getBoundingClientRect();if(r.width<200||r.height<110){hide();return;}
