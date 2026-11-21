@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 // Petal: браузер с вкладками и набор функций (саундпад, калькулятор, случайные числа, колесо удачи) в тёмном стиле.
 // Запуск: cargo run --release
 
@@ -440,12 +441,18 @@ mod web {
     const PIP_JS: &str = r##"(function(){if(window.__petalPip)return;window.__petalPip=1;var b=null,v=null,t=0;
 function mk(){b=document.createElement('div');b.setAttribute('style','position:fixed;z-index:2147483647;width:34px;height:34px;border-radius:8px;background:rgba(30,30,34,.82);display:none;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4);');
 b.innerHTML='<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="12" rx="2"/><rect x="9.5" y="9" width="6" height="5" rx="1" fill="#fff"/></svg>';
-b.addEventListener('click',function(e){e.stopPropagation();e.preventDefault();if(!v)return;try{if(document.pictureInPictureElement===v){document.exitPictureInPicture();}else{v.disablePictureInPicture=false;v.requestPictureInPicture();}}catch(x){}},true);
+b.addEventListener('click',function(e){e.stopPropagation();e.preventDefault();if(!v)return;if(mini){unmini();return;}try{if(document.pictureInPictureElement===v){document.exitPictureInPicture();return;}if(document.pictureInPictureEnabled){v.disablePictureInPicture=false;v.requestPictureInPicture().catch(function(){goMini();});return;}}catch(x){}goMini();},true);
 b.addEventListener('mousedown',function(e){e.stopPropagation();},true);}
 function place(){if(!v||!v.isConnected){hide();return;}var r=v.getBoundingClientRect();if(r.width<200||r.height<110){hide();return;}
 if(!b)mk();var host=document.fullscreenElement;if(!host||host===v||host.tagName==='VIDEO')host=document.documentElement;if(b.parentNode!==host)host.appendChild(b);
-b.style.left=Math.max(0,Math.min(innerWidth-40,r.right-44))+'px';b.style.top=Math.max(0,r.top+10)+'px';b.style.display='flex';clearTimeout(t);t=setTimeout(hide,2500);}
-function hide(){if(b)b.style.display='none';}
+b.style.left=Math.max(0,Math.min(innerWidth-40,r.right-44))+'px';b.style.top=Math.max(0,r.top+10)+'px';b.style.display='flex';clearTimeout(t);if(!mini)t=setTimeout(hide,2500);}
+function hide(){if(b&&!mini)b.style.display='none';}
+var mini=null;
+function say(m){try{window.ipc.postMessage(m);}catch(e){}}
+function goMini(){if(!v||mini)return;mini={v:v,css:v.getAttribute('style')};v.style.cssText=(mini.css||'')+';position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;z-index:2147483646!important;background:#000!important;object-fit:contain!important;transform:none!important;margin:0!important;';say('petal:pip:1');setTimeout(place,300);}
+function unmini(){if(!mini)return;var m=mini;mini=null;if(m.css===null)m.v.removeAttribute('style');else m.v.setAttribute('style',m.css);say('petal:pip:0');hide();}
+document.addEventListener('keydown',function(e){if(mini&&e.key==='Escape')unmini();},true);
+window.addEventListener('pagehide',function(){if(mini)say('petal:pip:0');});
 function find(e){var n=e.target;if(n&&n.tagName==='VIDEO')return n;var x=e.clientX,y=e.clientY,l=document.querySelectorAll('video');for(var i=0;i<l.length;i++){var r=l[i].getBoundingClientRect();if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return l[i];}return null;}
 document.addEventListener('mousemove',function(e){if(b&&e.target===b){clearTimeout(t);return;}var f=find(e);if(f){v=f;place();}else if(v){hide();}},true);
 document.addEventListener('scroll',function(){if(b&&b.style.display!=='none')place();},true);
@@ -475,6 +482,7 @@ document.addEventListener('fullscreenchange',hide);
             new_tabs: Sender<String>,
             incognito: bool,
             fullscreen: Arc<AtomicBool>,
+            pip: Arc<AtomicBool>,
         ) -> Result<Self, String> {
             let webview = WebViewBuilder::new()
                 // Страница сообщает, когда её элемент (например, видео на YouTube) уходит на весь экран.
@@ -483,6 +491,8 @@ document.addEventListener('fullscreenchange',hide);
                 .with_ipc_handler(move |req| match req.body().as_str() {
                     "petal:fs:1" => fullscreen.store(true, Ordering::Relaxed),
                     "petal:fs:0" => fullscreen.store(false, Ordering::Relaxed),
+                    "petal:pip:1" => pip.store(true, Ordering::Relaxed),
+                    "petal:pip:0" => pip.store(false, Ordering::Relaxed),
                     _ => {}
                 })
                 .with_incognito(incognito)
@@ -564,6 +574,7 @@ mod web {
             _: Arc<Mutex<String>>,
             _: Sender<String>,
             _: bool,
+            _: Arc<std::sync::atomic::AtomicBool>,
             _: Arc<std::sync::atomic::AtomicBool>,
         ) -> Result<Self, String> {
             Err("Встроенный браузер работает только в Windows.".to_string())
@@ -1327,6 +1338,8 @@ struct Pane {
     new_rx: mpsc::Receiver<String>,
     /// Страница просит показать её на весь экран (видео на YouTube и т. п.).
     fs: Arc<AtomicBool>,
+    /// Видео свёрнуто в маленькое окно.
+    pip: Arc<AtomicBool>,
     /// Адрес страницы, спрошенный у браузера недавно (спрашивать каждый кадр дорого).
     url_cache: std::cell::RefCell<Option<(Instant, Option<String>)>>,
     /// Вкладка инкогнито: ничего не пишется ни в историю, ни в сессию.
@@ -1350,6 +1363,7 @@ impl Pane {
             new_tx,
             new_rx,
             fs: Arc::new(AtomicBool::new(false)),
+            pip: Arc::new(AtomicBool::new(false)),
             url_cache: std::cell::RefCell::new(None),
             incognito: false,
             logged_url: String::new(),
@@ -1373,7 +1387,7 @@ impl Pane {
         let ppp = ui.ctx().pixels_per_point();
         let bounds = [rect.min.x * ppp, rect.min.y * ppp, rect.width() * ppp, rect.height() * ppp];
         if self.view.is_none() && self.error.is_empty() {
-            match web::Browser::new(frame, &self.start_url, bounds, self.title.clone(), self.new_tx.clone(), self.incognito, self.fs.clone()) {
+            match web::Browser::new(frame, &self.start_url, bounds, self.title.clone(), self.new_tx.clone(), self.incognito, self.fs.clone(), self.pip.clone()) {
                 Ok(b) => {
                     self.view = Some(b);
                     self.rect = Some(bounds);
@@ -1506,6 +1520,7 @@ struct App {
     dots_open: bool,
     /// Сейчас окно на весь экран из-за страницы; адрес, с которого это началось.
     page_fs: bool,
+    mini: Option<(Option<String>, egui::Vec2)>,
     fs_url: String,
     rng: Rng,
 
@@ -1581,6 +1596,7 @@ impl App {
             tool_win: [false; 8],
             dots_open: false,
             page_fs: false,
+            mini: None,
             fs_url: String::new(),
             rng: Rng::new(),
 
@@ -2005,6 +2021,27 @@ impl App {
                 self.page_fs = false;
                 self.tabs[self.active].fs.store(false, Ordering::Relaxed);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+            }
+        }
+    }
+
+    /// Видео в маленьком окне: окно становится крошечным, всегда сверху, а страница показывает только видео.
+    fn update_mini_player(&mut self, ctx: &egui::Context) {
+        let want = self.tabs[self.active].pip.load(Ordering::Relaxed);
+        if want && self.mini.is_none() {
+            let size = ctx.input(|i| i.viewport().inner_rect.map(|r| r.size())).unwrap_or(egui::vec2(1200.0, 800.0));
+            self.mini = Some((host_of(&self.tabs[self.active].current_url()), size));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(480.0, 270.0)));
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+        } else if let Some((host, size)) = self.mini.clone() {
+            let moved = host_of(&self.tabs[self.active].current_url()) != host;
+            if !want || moved {
+                self.mini = None;
+                self.tabs[self.active].pip.store(false, Ordering::Relaxed);
+                ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::Normal));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
             }
         }
     }
@@ -3534,8 +3571,9 @@ impl eframe::App for App {
         self.sound_keys(ctx);
 
         self.update_page_fullscreen(ctx);
+        self.update_mini_player(ctx);
 
-        if !self.page_fs {
+        if !self.page_fs && self.mini.is_none() {
             // Верхняя полоса идёт первой, чтобы тянуться на всю ширину окна.
             self.top_bar(ctx);
             self.tabs_panel(ctx);
