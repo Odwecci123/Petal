@@ -21,12 +21,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 // ───────────────────────── Цвета ─────────────────────────
 
 const BG: Color32 = Color32::from_rgb(31, 31, 31);
-const SIDE_BG: Color32 = Color32::from_rgb(24, 24, 24);
-const FIELD_BG: Color32 = Color32::from_rgb(48, 49, 52);
-const CARD_BG: Color32 = Color32::from_rgb(41, 42, 45);
+const SIDE_BG: Color32 = Color32::from_rgb(17, 17, 23);
+const FIELD_BG: Color32 = Color32::from_rgb(38, 38, 50);
+const CARD_BG: Color32 = Color32::from_rgb(32, 32, 43);
+const ACCENT_A: Color32 = Color32::from_rgb(236, 72, 153);
+const ACCENT_B: Color32 = Color32::from_rgb(124, 92, 255);
 const TEXT: Color32 = Color32::from_rgb(232, 234, 237);
 const MUTED: Color32 = Color32::from_rgb(154, 160, 166);
-const LINK: Color32 = Color32::from_rgb(138, 180, 248);
+const LINK: Color32 = Color32::from_rgb(160, 168, 255);
 const RED: Color32 = Color32::from_rgb(242, 139, 130);
 const YELLOW: Color32 = Color32::from_rgb(253, 214, 99);
 const GREEN: Color32 = Color32::from_rgb(129, 201, 149);
@@ -422,16 +424,27 @@ static NEWTAB_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 const NEWTAB_HTML: &str = r##"<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Новая вкладка</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">
 <style>
-html,body{margin:0;height:100%;background:#131316;color:#fff;font-family:"Segoe UI",system-ui,sans-serif}
-.w{display:flex;flex-direction:column;align-items:center;padding-top:15vh}
-.l{display:flex;align-items:center;gap:22px;margin-bottom:56px}
-.l img{width:64px;height:64px;border-radius:16px}
-.l span{font-size:68px;font-weight:700;letter-spacing:-1px}
-form{width:min(850px,86vw);position:relative}
-input{box-sizing:border-box;width:100%;height:52px;border:0;border-radius:26px;background:#25252a;color:#fff;font-size:17px;padding:0 24px 0 56px;outline:none}
+html,body{margin:0;height:100%;background:#131316;color:#fff;font-family:"Segoe UI",system-ui,sans-serif;overflow:hidden}
+body::before,body::after{content:"";position:fixed;width:46vmax;height:46vmax;border-radius:50%;filter:blur(90px);opacity:.28;z-index:0;pointer-events:none}
+body::before{background:#ff5d8f;left:-14vmax;top:-18vmax;animation:d1 22s ease-in-out infinite alternate}
+body::after{background:#6a5cff;right:-16vmax;bottom:-22vmax;animation:d2 26s ease-in-out infinite alternate}
+@keyframes d1{to{transform:translate(18vmax,10vmax) scale(1.15)}}
+@keyframes d2{to{transform:translate(-16vmax,-8vmax) scale(1.2)}}
+.w{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;padding-top:15vh}
+.l{display:flex;align-items:center;gap:22px;margin-bottom:56px;animation:up .8s cubic-bezier(.2,.8,.2,1) both}
+.l img{width:64px;height:64px;border-radius:16px;animation:fl 5s ease-in-out infinite;transition:transform .5s}
+.l img:hover{transform:rotate(72deg) scale(1.1)}
+.l span{font-size:68px;font-weight:700;letter-spacing:-1px;background:linear-gradient(90deg,#fff,#ffc2d6,#c9c2ff,#fff);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 8s linear infinite}
+@keyframes fl{50%{transform:translateY(-6px) rotate(-4deg)}}
+@keyframes sh{to{background-position:-300% 0}}
+@keyframes up{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+form{width:min(850px,86vw);position:relative;animation:up .8s .15s cubic-bezier(.2,.8,.2,1) both}
+input{box-sizing:border-box;width:100%;height:54px;border:0;border-radius:27px;background:rgba(40,40,46,.85);color:#fff;font-size:17px;padding:0 24px 0 58px;outline:none;transition:box-shadow .25s,background .25s,transform .25s}
 input::placeholder{color:#9a9aa3}
-input:focus{box-shadow:0 0 0 2px #5b6cff}
-svg{position:absolute;left:20px;top:15px}
+input:hover{background:rgba(52,52,60,.9)}
+input:focus{background:rgba(52,52,60,.95);box-shadow:0 0 0 2px #7a7cff,0 8px 30px rgba(122,124,255,.28);transform:translateY(-1px)}
+svg{position:absolute;left:21px;top:16px;transition:stroke .25s}
+form:focus-within svg{stroke:#b9bbff}
 </style></head><body><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span>Petal</span></div>
 <form id="f"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9a9aa3" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
 <input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в Google или введите адрес"></form></div>
@@ -988,12 +1001,92 @@ enum NavIcon {
     Reload,
 }
 
-/// Круглая кнопка со значком, нарисованным линиями (не зависит от шрифта).
+fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgba_unmultiplied(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()), l(a.a(), b.a()))
+}
+
+/// Скруглённый прямоугольник с плавным градиентом (по горизонтали или по вертикали).
+fn grad_rrect(p: &egui::Painter, rect: egui::Rect, r: f32, c0: Color32, c1: Color32, vertical: bool) {
+    let r = r.min(rect.width() / 2.0).min(rect.height() / 2.0);
+    let corners = [
+        (egui::pos2(rect.right() - r, rect.top() + r), -90.0_f32),
+        (egui::pos2(rect.right() - r, rect.bottom() - r), 0.0),
+        (egui::pos2(rect.left() + r, rect.bottom() - r), 90.0),
+        (egui::pos2(rect.left() + r, rect.top() + r), 180.0),
+    ];
+    let color_at = |q: egui::Pos2| {
+        let t = if vertical { (q.y - rect.top()) / rect.height().max(1.0) } else { (q.x - rect.left()) / rect.width().max(1.0) };
+        mix(c0, c1, t)
+    };
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.center(), color_at(rect.center()));
+    for (c, start) in corners {
+        for k in 0..=6 {
+            let a = (start + 90.0 * k as f32 / 6.0).to_radians();
+            let q = c + Vec2::new(a.cos(), a.sin()) * r;
+            mesh.colored_vertex(q, color_at(q));
+        }
+    }
+    let n = 28u32;
+    for i in 0..n {
+        mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
+    }
+    p.add(egui::Shape::mesh(mesh));
+}
+
+/// Выпадающая карточка, которая плавно вырастает из кнопки. Возвращает видимый прямоугольник.
+fn popup_card(ctx: &egui::Context, key: &str, open: bool, pos: egui::Pos2, width: f32, add: impl FnOnce(&mut egui::Ui)) -> Option<egui::Rect> {
+    let t = ctx.animate_bool_with_time(egui::Id::new((key, "t")), open, 0.26);
+    if t < 0.002 {
+        return None;
+    }
+    let e = t * t * (3.0 - 2.0 * t);
+    let hid = egui::Id::new((key, "h"));
+    let full: f32 = ctx.data(|d| d.get_temp(hid)).unwrap_or(260.0);
+    let top = pos - Vec2::new(0.0, 12.0 * (1.0 - e));
+    let vis = egui::Rect::from_min_size(top, Vec2::new(width + 2.0, (full * e).max(1.0)));
+    egui::Area::new(egui::Id::new((key, "area"))).order(egui::Order::Foreground).fixed_pos(top).show(ctx, |ui| {
+        ui.set_clip_rect(vis);
+        ui.set_opacity(e);
+        let r = Frame::new()
+            .fill(CARD_BG)
+            .corner_radius(CornerRadius::same(18))
+            .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 26)))
+            .inner_margin(Margin::same(10))
+            .show(ui, |ui| {
+                ui.set_width(width - 24.0);
+                add(ui);
+            });
+        ctx.data_mut(|d| d.insert_temp(hid, r.response.rect.height()));
+    });
+    Some(vis)
+}
+
+/// Плавная «степень наведения» 0..1 для кнопки.
+fn hover_t(ui: &egui::Ui, resp: &egui::Response) -> f32 {
+    ui.ctx().animate_bool_with_time(resp.id.with("hov"), resp.hovered(), 0.15)
+}
+
 fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
     let resp = if enabled { resp.on_hover_cursor(CursorIcon::PointingHand) } else { resp };
-    let fill = if enabled && resp.hovered() { Color32::from_rgb(70, 72, 78) } else { FIELD_BG };
-    let color = if enabled { TEXT } else { Color32::from_gray(95) };
+    let t = if enabled { hover_t(ui, &resp) } else { 0.0 };
+    let fill = mix(FIELD_BG, Color32::from_rgb(72, 74, 82), t);
+    let color = if enabled { mix(Color32::from_rgb(205, 208, 214), Color32::WHITE, t) } else { Color32::from_gray(90) };
+    // Стрелка «обновить» делает оборот при каждом нажатии.
+    let rot = if matches!(icon, NavIcon::Reload) {
+        let id = egui::Id::new("reload_turns");
+        let mut target: f32 = ui.ctx().data_mut(|d| d.get_temp(id).unwrap_or(0.0));
+        if enabled && resp.clicked() {
+            target += std::f32::consts::TAU;
+            ui.ctx().data_mut(|d| d.insert_temp(id, target));
+        }
+        ui.ctx().animate_value_with_time(id.with("a"), target, 0.7)
+    } else {
+        0.0
+    };
     let p = ui.painter();
     p.circle_filled(rect.center(), 17.0, fill);
     let c = rect.center();
@@ -1001,13 +1094,15 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
     match icon {
         NavIcon::Back | NavIcon::Forward => {
             let d = if matches!(icon, NavIcon::Back) { -1.0 } else { 1.0 };
+            // При наведении стрелка чуть сдвигается в свою сторону.
+            let c = c + Vec2::new(1.5 * d * t, 0.0);
             p.line_segment([c + Vec2::new(-6.0 * d, 0.0), c + Vec2::new(6.0 * d, 0.0)], st);
             p.line_segment([c + Vec2::new(6.0 * d, 0.0), c + Vec2::new(1.0 * d, -5.0)], st);
             p.line_segment([c + Vec2::new(6.0 * d, 0.0), c + Vec2::new(1.0 * d, 5.0)], st);
         }
         NavIcon::Reload => {
             let r = 7.0_f32;
-            let (a0, a1) = (-1.2_f32, -1.2_f32 + std::f32::consts::TAU * 0.78);
+            let (a0, a1) = (-1.2_f32 + rot, -1.2_f32 + rot + std::f32::consts::TAU * 0.78);
             let pts: Vec<egui::Pos2> = (0..=24)
                 .map(|i| {
                     let a = a0 + (a1 - a0) * (i as f32 / 24.0);
@@ -1032,10 +1127,10 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
 fn downloads_button(ui: &mut egui::Ui, active: usize) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
-    let fill = if resp.hovered() { Color32::from_rgb(150, 215, 168) } else { GREEN };
+    let fill = mix(GREEN, Color32::from_rgb(160, 222, 178), hover_t(ui, &resp));
     let dark = Color32::from_rgb(24, 46, 31);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(12), fill);
+    grad_rrect(p, rect, 13.0, fill, mix(fill, Color32::from_rgb(64, 190, 200), 0.75), false);
     let c = rect.left_center() + Vec2::new(24.0, 0.0);
     let st = Stroke::new(2.2_f32, dark);
     p.line_segment([c + Vec2::new(0.0, -8.0), c + Vec2::new(0.0, 3.0)], st);
@@ -1069,22 +1164,43 @@ fn reveal_path(path: &str) {
     }
 }
 
-/// Круглая кнопка с тремя точками (меню браузера).
+/// Кнопка меню (настройки, история, пароли): три ползунка, которые при наведении «переезжают».
 fn dots_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
-    let fill = if open || resp.hovered() { Color32::from_rgb(70, 72, 78) } else { FIELD_BG };
+    let t = hover_t(ui, &resp);
+    let o = ui.ctx().animate_bool_with_time(resp.id.with("open"), open, 0.2);
+    let fill = mix(mix(FIELD_BG, Color32::from_rgb(72, 74, 82), t), LINK, o);
+    let ink = mix(mix(Color32::from_rgb(205, 208, 214), Color32::WHITE, t), Color32::from_rgb(24, 30, 48), o);
     let p = ui.painter();
-    p.circle_filled(rect.center(), 17.0, fill);
-    for dy in [-7.0_f32, 0.0, 7.0] {
-        p.circle_filled(rect.center() + Vec2::new(0.0, dy), 2.2, TEXT);
+    p.rect_filled(rect, CornerRadius::same(12), fill);
+    let c = rect.center();
+    let st = Stroke::new(1.8_f32, ink);
+    let (from, to) = ([-4.0_f32, 4.0, -1.0], [4.0_f32, -4.0, 4.5]);
+    let k = (t * 0.7 + o * 0.3).clamp(0.0, 1.0);
+    for (i, dy) in [-8.0_f32, 0.0, 8.0].into_iter().enumerate() {
+        p.line_segment([c + Vec2::new(-9.0, dy), c + Vec2::new(9.0, dy)], st);
+        let x = from[i] + (to[i] - from[i]) * k;
+        p.circle_filled(c + Vec2::new(x, dy), 2.8, fill);
+        p.circle_stroke(c + Vec2::new(x, dy), 2.8, st);
     }
     resp
 }
 
-/// Пункт маленького меню на всю ширину; true, если нажали.
 fn menu_item(ui: &mut egui::Ui, text: &str, color: Color32) -> bool {
-    ui.add_sized([ui.available_width(), 34.0], egui::Button::new(RichText::new(text).size(15.0).color(color))).clicked()
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 42.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let t = hover_t(ui, &resp);
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::same(13), Color32::from_rgba_unmultiplied(255, 255, 255, (18.0 * t) as u8));
+    // Цветная «пуговка» с первой буквой.
+    let tint = if color == TEXT { LINK } else { color };
+    let b = egui::Rect::from_center_size(rect.left_center() + Vec2::new(22.0, 0.0), Vec2::splat(28.0 + 2.0 * t));
+    p.rect_filled(b, CornerRadius::same(9), Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), (38.0 + 40.0 * t) as u8));
+    let letter: String = text.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
+    p.text(b.center(), Align2::CENTER_CENTER, letter, FontId::proportional(14.0), tint);
+    p.text(rect.left_center() + Vec2::new(44.0 + 3.0 * t, 0.0), Align2::LEFT_CENTER, text, FontId::proportional(15.0), mix(color, Color32::WHITE, 0.35 * t));
+    resp.clicked()
 }
 
 /// Менеджер паролей: пока не введён мастер-пароль, ключа нет и записи не расшифрованы.
@@ -1110,76 +1226,41 @@ fn pill_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
 }
 
 fn accent_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    ui.add(
-        egui::Button::new(RichText::new(text).color(Color32::from_rgb(32, 33, 36)))
-            .fill(LINK)
-            .min_size(Vec2::new(0.0, 34.0)),
-    )
-    .on_hover_cursor(CursorIcon::PointingHand)
-}
-
-
-/// Увядшая роза, нарисованная кистью egui (стикер).
-fn paint_rose(p: &egui::Painter, r: egui::Rect) {
-    use egui::epaint::CubicBezierShape;
-    use egui::pos2;
-    let u = r.width() / 42.0;
-    let c = r.center();
-    let at = |x: f32, y: f32| pos2(c.x + x * u, c.y + y * u);
-    // Стебель, согнутый под тяжестью цветка.
-    p.add(CubicBezierShape::from_points_stroke(
-        [at(-4.0, 17.0), at(-5.0, 8.0), at(-3.0, 0.0), at(4.0, -3.0)],
-        false,
-        Color32::TRANSPARENT,
-        Stroke::new(2.2 * u, Color32::from_rgb(76, 150, 92)),
-    ));
-    // Лист.
-    p.add(egui::Shape::convex_polygon(
-        vec![at(-4.6, 10.0), at(-12.0, 4.5), at(-9.0, 12.5)],
-        Color32::from_rgb(76, 150, 92),
-        Stroke::NONE,
-    ));
-    // Бутон: опущен вправо и вниз.
-    let h = at(6.5, -2.5);
-    p.circle_filled(h, 9.0 * u, Color32::from_rgb(176, 32, 48));
-    p.circle_filled(h, 6.0 * u, Color32::from_rgb(138, 20, 38));
-    let mut pts = Vec::new();
-    for k in 0..40 {
-        let a = k as f32 * 0.42;
-        let rad = (0.6 + k as f32 * 0.115) * u;
-        pts.push(pos2(h.x + rad * a.cos(), h.y + rad * a.sin()));
-    }
-    p.add(egui::Shape::line(pts, Stroke::new(1.2 * u, Color32::from_rgb(232, 92, 104))));
-    p.circle_stroke(h, 9.0 * u, Stroke::new(1.0 * u, Color32::from_rgb(222, 70, 84)));
-    // Упавший лепесток.
-    p.circle_filled(at(10.0, 12.0), 2.3 * u, Color32::from_rgb(150, 24, 40));
-    p.circle_filled(at(1.0, 15.0), 1.6 * u, Color32::from_rgb(176, 32, 48));
-}
-
-/// Кнопка-стикер справа сверху: открывает и закрывает панель функций.
-fn sticker_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(42.0), Sense::click());
-    let bg = if open {
-        Color32::from_rgb(58, 64, 90)
-    } else if resp.hovered() {
-        Color32::from_rgb(52, 53, 57)
-    } else {
-        CARD_BG
-    };
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let t = hover_t(ui, &resp);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(12), Color32::from_rgb(238, 238, 238));
-    let inner = rect.shrink(2.5);
-    p.rect_filled(inner, CornerRadius::same(10), bg);
-    paint_rose(p, inner);
-    // Отклеивающийся уголок.
-    let br = rect.right_bottom();
-    p.add(egui::Shape::convex_polygon(
-        vec![br, br - Vec2::new(11.0, 0.0), br - Vec2::new(0.0, 11.0)],
-        Color32::from_rgb(200, 200, 204),
-        Stroke::NONE,
-    ));
+    p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), Color32::from_rgba_unmultiplied(124, 92, 255, (24.0 + 46.0 * t) as u8));
+    grad_rrect(p, rect, 14.0, mix(ACCENT_A, Color32::from_rgb(255, 120, 175), t), mix(ACCENT_B, Color32::from_rgb(150, 120, 255), t), false);
+    p.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(15.0), Color32::WHITE);
     resp
-        .on_hover_cursor(CursorIcon::PointingHand)
+}
+
+
+
+/// Кнопка «Функции»: цветок-роза на градиентной плитке, при наведении приподнимается и поворачивается.
+fn sticker_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
+    let (rect0, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let t = hover_t(ui, &resp);
+    let o = ui.ctx().animate_bool_with_time(resp.id.with("open"), open, 0.25);
+    let rect = rect0.translate(Vec2::new(0.0, -1.5 * t));
+    let p = ui.painter();
+    p.rect_filled(rect0.translate(Vec2::new(0.0, 3.0)).expand(1.0 + 1.5 * t), CornerRadius::same(15), Color32::from_rgba_unmultiplied(236, 72, 153, (28.0 + 50.0 * t + 40.0 * o) as u8));
+    grad_rrect(p, rect, 13.0, mix(ACCENT_A, Color32::from_rgb(255, 120, 170), t), mix(ACCENT_B, Color32::from_rgb(150, 110, 255), t), true);
+    p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.5_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (30.0 + 170.0 * o) as u8)), egui::StrokeKind::Inside);
+    let c = rect.center();
+    let spin = t * 0.55 + o * 0.45;
+    let ring = |n: usize, dist: f32, rad: f32, off: f32, col: Color32| {
+        for k in 0..n {
+            let a = off + spin + k as f32 * std::f32::consts::TAU / n as f32;
+            p.circle_filled(c + Vec2::new(a.cos(), a.sin()) * dist, rad, col);
+        }
+    };
+    ring(5, 6.6, 5.6, -1.57, Color32::from_rgba_unmultiplied(255, 255, 255, 235));
+    ring(5, 3.2, 3.9, -1.57 + 0.63, Color32::from_rgb(255, 205, 225));
+    p.circle_filled(c, 2.6, Color32::from_rgb(224, 64, 120));
+    resp
 }
 
 // ───────────────────────── Звук в микрофон ─────────────────────────
@@ -1611,6 +1692,8 @@ struct App {
     dots_open: bool,
     /// Сейчас окно на весь экран из-за страницы; адрес, с которого это началось.
     page_fs: bool,
+    menu_pos: egui::Pos2,
+    menu_btns: Vec<egui::Rect>,
     mini: Option<(Option<String>, egui::Vec2)>,
     fs_url: String,
     rng: Rng,
@@ -1687,6 +1770,8 @@ impl App {
             tool_win: [false; 8],
             dots_open: false,
             page_fs: false,
+            menu_pos: egui::Pos2::ZERO,
+            menu_btns: Vec::new(),
             mini: None,
             fs_url: String::new(),
             rng: Rng::new(),
@@ -1813,7 +1898,8 @@ impl App {
         let mut toggle_dots = false;
         let has = self.tabs[self.active].view.is_some();
         let nav = self.tabs[self.active].nav.load(Ordering::Relaxed);
-        ui.horizontal(|ui| {
+        let mut btns: Vec<egui::Rect> = Vec::new();
+        let row = ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let tab = &self.tabs[self.active];
             if icon_button(ui, NavIcon::Back, has && nav & 1 != 0).clicked() && nav & 1 != 0 {
@@ -1832,16 +1918,28 @@ impl App {
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if sticker_button(ui, self.tools_open).clicked() {
+                let r1 = sticker_button(ui, self.tools_open);
+                btns.push(r1.rect);
+                if r1.clicked() {
                     toggle = true;
                 }
-                if dots_button(ui, self.dots_open).clicked() {
+                let r2 = dots_button(ui, self.dots_open);
+                btns.push(r2.rect);
+                if r2.clicked() {
                     toggle_dots = true;
                 }
             });
         });
+        self.menu_pos = row.response.rect.left_bottom() + Vec2::new(0.0, 8.0);
+        self.menu_btns = btns;
         ui.add_space(8.0);
-        Frame::new().fill(FIELD_BG).corner_radius(CornerRadius::same(20)).inner_margin(Margin::symmetric(14, 6)).show(ui, |ui| {
+        let glow = ui.ctx().animate_bool_with_time(egui::Id::new("addr_glow"), self.addr_focused, 0.2);
+        Frame::new()
+            .fill(FIELD_BG)
+            .corner_radius(CornerRadius::same(20))
+            .stroke(Stroke::new(1.5_f32, mix(Color32::from_rgba_unmultiplied(124, 92, 255, 0), ACCENT_B, glow)))
+            .inner_margin(Margin::symmetric(14, 6))
+            .show(ui, |ui| {
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut self.addr)
                     .frame(false)
@@ -1883,6 +1981,7 @@ impl App {
             .resizable(false)
             .frame(Frame::new().fill(SIDE_BG).inner_margin(Margin::same(10)))
             .show(ctx, |ui| {
+                grad_rrect(ui.painter(), ui.max_rect().expand(10.0), 0.0, Color32::from_rgb(30, 22, 46), Color32::from_rgb(15, 15, 20), true);
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::hover());
                     paint_logo(ui.painter(), r);
@@ -1907,26 +2006,34 @@ impl App {
                     ui.spacing_mut().item_spacing.y = 4.0;
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let active = i == self.active;
-                        let (row, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 36.0), Sense::click());
+                        let (row, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
                         let close_rect = egui::Rect::from_center_size(row.right_center() - Vec2::new(16.0, 0.0), Vec2::splat(22.0));
                         let close_resp = ui.interact(close_rect, ui.id().with(("close_tab", i)), Sense::click());
-                        let bg = if active {
-                            Color32::from_rgb(48, 56, 78)
-                        } else if resp.hovered() {
-                            Color32::from_rgb(40, 41, 44)
-                        } else {
-                            Color32::TRANSPARENT
-                        };
+                        let ht = ui.ctx().animate_bool_with_time(resp.id.with("hov"), resp.hovered(), 0.14);
+                        let at = ui.ctx().animate_bool_with_time(resp.id.with("act"), active, 0.22);
+                        let bg = mix(Color32::from_rgba_unmultiplied(44, 45, 50, (255.0 * ht) as u8), Color32::from_rgb(48, 56, 78), at);
                         let p = ui.painter();
-                        p.rect_filled(row, CornerRadius::same(10), bg);
+                        p.rect_filled(row, CornerRadius::same(11), bg);
+                        if at > 0.01 {
+                            p.rect_filled(egui::Rect::from_center_size(row.left_center() + Vec2::new(2.5, 0.0), Vec2::new(3.5, 22.0 * at)), CornerRadius::same(2), LINK);
+                        }
+                        // Цветной кружок с первой буквой сайта.
+                        let label = tab.label();
+                        let hue = tab.current_url().bytes().filter(|b| *b != b'/').take(24).fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
+                        let pal = [ACCENT_A, ACCENT_B, Color32::from_rgb(56, 189, 248), Color32::from_rgb(52, 211, 153), Color32::from_rgb(251, 146, 60), Color32::from_rgb(250, 204, 21)];
+                        let avatar = if tab.incognito { PURPLE } else { pal[(hue % 6) as usize] };
+                        let ac = row.left_center() + Vec2::new(22.0, 0.0);
+                        p.circle_filled(ac, 11.0, Color32::from_rgba_unmultiplied(avatar.r(), avatar.g(), avatar.b(), 60));
+                        let initial: String = label.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "·".to_string());
+                        p.text(ac, Align2::CENTER_CENTER, initial, FontId::proportional(13.0), avatar);
                         let text_rect = egui::Rect::from_min_max(
-                            row.left_top() + Vec2::new(12.0, 0.0),
+                            row.left_top() + Vec2::new(40.0, 0.0),
                             egui::pos2(close_rect.left() - 2.0, row.bottom()),
                         );
                         p.with_clip_rect(text_rect).text(
-                            row.left_center() + Vec2::new(12.0, 0.0),
+                            row.left_center() + Vec2::new(40.0, 0.0),
                             Align2::LEFT_CENTER,
-                            tab.label(),
+                            label,
                             FontId::proportional(14.0),
                             if active { LINK } else { TEXT },
                         );
@@ -1965,38 +2072,26 @@ impl App {
     }
 
     /// Маленькое меню по значку-стикеру: кнопка на каждую функцию.
-    fn tools_menu(&mut self, ctx: &egui::Context) {
+    fn tools_menu(&mut self, ctx: &egui::Context) -> Option<egui::Rect> {
         let mut picked: Option<usize> = None;
         let mut open_google = false;
-        egui::SidePanel::right("tools_menu")
-            .exact_width(190.0 + 20.0)
-            .resizable(false)
-            .frame(Frame::new().fill(CARD_BG).inner_margin(Margin::same(10)))
-            .show(ctx, |ui| {
-                ui.set_width(190.0);
-                ui.label(RichText::new("Функции").size(13.0).color(MUTED));
-                ui.add_space(4.0);
-                for (i, (tool, name, color)) in TOOLS.iter().enumerate() {
-                    if in_dots(*tool) || *tool == Tool::Downloads {
-                        continue;
-                    }
-                    let text = RichText::new(name.to_string()).size(15.0).color(if self.tool_win[i] { *color } else { TEXT });
-                    if ui
-                        .add_sized([ui.available_width(), 34.0], egui::Button::new(text))
-                        .on_hover_cursor(CursorIcon::PointingHand)
-                        .clicked()
-                    {
-                        picked = Some(i);
-                    }
+        let wins = self.tool_win;
+        let card = popup_card(ctx, "tools", self.tools_open, self.menu_pos, 230.0, |ui| {
+            ui.label(RichText::new("Функции").size(13.0).color(MUTED));
+            ui.add_space(2.0);
+            ui.spacing_mut().item_spacing.y = 2.0;
+            for (i, (tool, name, color)) in TOOLS.iter().enumerate() {
+                if in_dots(*tool) || *tool == Tool::Downloads {
+                    continue;
                 }
-                ui.add_space(2.0);
-                if ui
-                    .add_sized([ui.available_width(), 34.0], egui::Button::new(RichText::new("Google").size(15.0).color(TEXT)))
-                    .clicked()
-                {
-                    open_google = true;
+                if menu_item(ui, name, if wins[i] { *color } else { TEXT }) {
+                    picked = Some(i);
                 }
-            });
+            }
+            if menu_item(ui, "Google", TEXT) {
+                open_google = true;
+            }
+        });
         if open_google {
             self.go(HOME_URL);
             self.tools_open = false;
@@ -2007,6 +2102,7 @@ impl App {
             let id = egui::ViewportId::from_hash_of(("tool", TOOLS[i].1));
             ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
         }
+        card
     }
 
     /// Каждая открытая функция живёт в своём отдельном окне.
@@ -2062,27 +2158,24 @@ impl App {
 
 
     /// Меню с тремя точками: инкогнито, история, пароли, настройки.
-    fn dots_menu(&mut self, ctx: &egui::Context) {
+    fn dots_menu(&mut self, ctx: &egui::Context) -> Option<egui::Rect> {
         let mut picked: Option<usize> = None;
         let mut incognito = false;
-        egui::SidePanel::right("dots_menu")
-            .exact_width(230.0 + 20.0)
-            .resizable(false)
-            .frame(Frame::new().fill(CARD_BG).inner_margin(Margin::same(10)))
-            .show(ctx, |ui| {
-                ui.set_width(230.0);
-                if menu_item(ui, "Новая вкладка инкогнито", PURPLE) {
-                    incognito = true;
+        let wins = self.tool_win;
+        let card = popup_card(ctx, "dots", self.dots_open, self.menu_pos, 230.0, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            if menu_item(ui, "Инкогнито", PURPLE) {
+                incognito = true;
+            }
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(4.0);
+            for (i, (tool, name, color)) in TOOLS.iter().enumerate() {
+                if in_dots(*tool) && menu_item(ui, name, if wins[i] { *color } else { TEXT }) {
+                    picked = Some(i);
                 }
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(4.0);
-                for (i, (tool, name, color)) in TOOLS.iter().enumerate() {
-                    if in_dots(*tool) && menu_item(ui, name, if self.tool_win[i] { *color } else { TEXT }) {
-                        picked = Some(i);
-                    }
-                }
-            });
+            }
+        });
         if incognito {
             self.open_private_tab();
             self.dots_open = false;
@@ -2092,6 +2185,21 @@ impl App {
             self.dots_open = false;
             let id = egui::ViewportId::from_hash_of(("tool", TOOLS[i].1));
             ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
+        }
+        card
+    }
+
+    /// Оба выпадающих меню; закрываются по Esc и по щелчку мимо них.
+    fn menus(&mut self, ctx: &egui::Context) {
+        let a = self.tools_menu(ctx);
+        let b = self.dots_menu(ctx);
+        if self.tools_open || self.dots_open {
+            let (pressed, pos, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(Key::Escape)));
+            let inside = |p: egui::Pos2| [a, b].iter().flatten().any(|r| r.contains(p)) || self.menu_btns.iter().any(|r| r.contains(p));
+            if esc || (pressed && pos.is_some_and(|p| !inside(p))) {
+                self.tools_open = false;
+                self.dots_open = false;
+            }
         }
     }
 
@@ -3664,12 +3772,7 @@ impl eframe::App for App {
 
         if !self.page_fs && self.mini.is_none() {
             self.tabs_panel(ctx);
-            if self.tools_open {
-                self.tools_menu(ctx);
-            }
-            if self.dots_open {
-                self.dots_menu(ctx);
-            }
+            self.menus(ctx);
         }
         self.tool_windows(ctx);
 
