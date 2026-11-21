@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::f64::consts::TAU;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -416,6 +416,82 @@ fn url_encode(s: &str) -> String {
     out
 }
 
+/// Собственная стартовая страница Petal: лежит файлом в папке данных, логотип вшит прямо в страницу.
+static NEWTAB_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+const NEWTAB_HTML: &str = r##"<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Новая вкладка</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">
+<style>
+html,body{margin:0;height:100%;background:#131316;color:#fff;font-family:"Segoe UI",system-ui,sans-serif}
+.w{display:flex;flex-direction:column;align-items:center;padding-top:15vh}
+.l{display:flex;align-items:center;gap:22px;margin-bottom:56px}
+.l img{width:64px;height:64px;border-radius:16px}
+.l span{font-size:68px;font-weight:700;letter-spacing:-1px}
+form{width:min(850px,86vw);position:relative}
+input{box-sizing:border-box;width:100%;height:52px;border:0;border-radius:26px;background:#25252a;color:#fff;font-size:17px;padding:0 24px 0 56px;outline:none}
+input::placeholder{color:#9a9aa3}
+input:focus{box-shadow:0 0 0 2px #5b6cff}
+svg{position:absolute;left:20px;top:15px}
+</style></head><body><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span>Petal</span></div>
+<form id="f"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9a9aa3" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
+<input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в Google или введите адрес"></form></div>
+<script>
+document.getElementById('f').addEventListener('submit',function(e){e.preventDefault();var t=document.getElementById('q').value.trim();if(!t)return;var u;
+if(/^https?:\/\//i.test(t))u=t;else if(!/\s/.test(t)&&t.indexOf('.')>0&&t.slice(-1)!=='.'&&t.indexOf('://')<0)u='https://'+t;else u='https://www.google.com/search?q='+encodeURIComponent(t);location.href=u;});
+document.getElementById('q').focus();
+</script></body></html>"##;
+
+fn base64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len() * 4 / 3 + 4);
+    for c in data.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+/// Пишет стартовую страницу на диск и возвращает её адрес (file://...).
+fn newtab_url() -> &'static str {
+    NEWTAB_URL.get_or_init(|| {
+        let html = NEWTAB_HTML.replace("@@LOGO@@", &base64(include_bytes!("../assets/petal.png")));
+        let path = std::env::current_dir().unwrap_or_default().join("petal_newtab.html");
+        let _ = std::fs::write(&path, html);
+        let p = path.to_string_lossy().replace('\\', "/");
+        let mut enc = String::new();
+        for b in p.bytes() {
+            if b.is_ascii_alphanumeric() || b"/:._-~".contains(&b) {
+                enc.push(b as char);
+            } else {
+                enc.push_str(&format!("%{b:02X}"));
+            }
+        }
+        format!("file://{}{}", if enc.starts_with('/') { "" } else { "/" }, enc)
+    })
+}
+
+/// Адрес для новой вкладки: стартовая страница Petal, если в настройках не выбрана своя домашняя.
+fn new_tab_url(home: &str) -> String {
+    let h = home.trim();
+    if h.is_empty() || h == "https://www.google.com/" || h == "https://www.google.com" {
+        newtab_url().to_string()
+    } else {
+        normalize_url(h)
+    }
+}
+
+/// В адресной строке стартовую страницу показываем пустой.
+fn shown_url(url: &str) -> String {
+    if url.starts_with("file://") && url.ends_with("/petal_newtab.html") {
+        String::new()
+    } else {
+        url.to_string()
+    }
+}
+
 /// Ссылку http(s) оставляет как есть, «домен.ру» дополняет до https, всё остальное ищет в Google.
 fn normalize_url(input: &str) -> String {
     let t = input.trim();
@@ -432,7 +508,7 @@ fn normalize_url(input: &str) -> String {
 #[cfg(windows)]
 mod web {
     use std::sync::mpsc::Sender;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
     use std::sync::{Arc, Mutex};
     use wry::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
     use wry::{NewWindowResponse, Rect, WebView, WebViewBuilder, WebViewBuilderExtWindows};
@@ -461,6 +537,8 @@ document.addEventListener('mousemove',function(e){if(b&&e.target===b){clearTimeo
 document.addEventListener('scroll',function(){if(b&&b.style.display!=='none')place();},true);
 document.addEventListener('fullscreenchange',hide);
 })();"##;
+    /// Сообщает, можно ли идти назад и вперёд (1 = назад, 2 = вперёд), чтобы стрелки гасли, когда идти некуда.
+    const NAV_JS: &str = "(function(){if(window!==window.top)return;var l=-1;function r(){var v=0;try{if(window.navigation){v=(navigation.canGoBack?1:0)|(navigation.canGoForward?2:0);}else{v=(history.length>1?1:0)|2;}}catch(e){}if(v!==l){l=v;try{window.ipc.postMessage('petal:nav:'+v);}catch(e){}}}setInterval(r,400);r();})();";
     const FULLSCREEN_JS: &str = "(function(){function s(){try{window.ipc.postMessage(document.fullscreenElement?'petal:fs:1':'petal:fs:0');}catch(e){}}document.addEventListener('fullscreenchange',s);document.addEventListener('webkitfullscreenchange',s);})();";
 
     pub struct Browser {
@@ -486,17 +564,23 @@ document.addEventListener('fullscreenchange',hide);
             incognito: bool,
             fullscreen: Arc<AtomicBool>,
             pip: Arc<AtomicBool>,
+            nav: Arc<AtomicU8>,
         ) -> Result<Self, String> {
             let webview = WebViewBuilder::new()
                 // Страница сообщает, когда её элемент (например, видео на YouTube) уходит на весь экран.
                 .with_initialization_script(FULLSCREEN_JS)
                 .with_initialization_script(PIP_JS)
+                .with_initialization_script(NAV_JS)
                 .with_ipc_handler(move |req| match req.body().as_str() {
                     "petal:fs:1" => fullscreen.store(true, Ordering::Relaxed),
                     "petal:fs:0" => fullscreen.store(false, Ordering::Relaxed),
                     "petal:pip:1" => pip.store(true, Ordering::Relaxed),
                     "petal:pip:0" => pip.store(false, Ordering::Relaxed),
-                    _ => {}
+                    m => {
+                        if let Some(n) = m.strip_prefix("petal:nav:").and_then(|n| n.parse::<u8>().ok()) {
+                            nav.store(n, Ordering::Relaxed);
+                        }
+                    }
                 })
                 .with_incognito(incognito)
                 // Тёмный фон до загрузки страницы и тёмная тема для сайтов, которые её поддерживают.
@@ -579,6 +663,7 @@ mod web {
             _: bool,
             _: Arc<std::sync::atomic::AtomicBool>,
             _: Arc<std::sync::atomic::AtomicBool>,
+            _: Arc<std::sync::atomic::AtomicU8>,
         ) -> Result<Self, String> {
             Err("Встроенный браузер работает только в Windows.".to_string())
         }
@@ -1343,6 +1428,8 @@ struct Pane {
     fs: Arc<AtomicBool>,
     /// Видео свёрнуто в маленькое окно.
     pip: Arc<AtomicBool>,
+    /// Можно ли идти назад (бит 1) и вперёд (бит 2).
+    nav: Arc<AtomicU8>,
     /// Адрес страницы, спрошенный у браузера недавно (спрашивать каждый кадр дорого).
     url_cache: std::cell::RefCell<Option<(Instant, Option<String>)>>,
     /// Вкладка инкогнито: ничего не пишется ни в историю, ни в сессию.
@@ -1367,6 +1454,7 @@ impl Pane {
             new_rx,
             fs: Arc::new(AtomicBool::new(false)),
             pip: Arc::new(AtomicBool::new(false)),
+            nav: Arc::new(AtomicU8::new(0)),
             url_cache: std::cell::RefCell::new(None),
             incognito: false,
             logged_url: String::new(),
@@ -1390,7 +1478,7 @@ impl Pane {
         let ppp = ui.ctx().pixels_per_point();
         let bounds = [rect.min.x * ppp, rect.min.y * ppp, rect.width() * ppp, rect.height() * ppp];
         if self.view.is_none() && self.error.is_empty() {
-            match web::Browser::new(frame, &self.start_url, bounds, self.title.clone(), self.new_tx.clone(), self.incognito, self.fs.clone(), self.pip.clone()) {
+            match web::Browser::new(frame, &self.start_url, bounds, self.title.clone(), self.new_tx.clone(), self.incognito, self.fs.clone(), self.pip.clone(), self.nav.clone()) {
                 Ok(b) => {
                     self.view = Some(b);
                     self.rect = Some(bounds);
@@ -1586,7 +1674,7 @@ impl App {
         let bcfg = store::load_cfg();
         let (urls, active) = if bcfg.restore { store::load_session() } else { (Vec::new(), 0) };
         let (tabs, active) = if urls.is_empty() {
-            (vec![Pane::new(&normalize_url(&bcfg.home))], 0)
+            (vec![Pane::new(&new_tab_url(&bcfg.home))], 0)
         } else {
             (urls.iter().map(|u| Pane::new(u)).collect(), active)
         };
@@ -1675,7 +1763,7 @@ impl App {
     fn select_tab(&mut self, i: usize) {
         if i < self.tabs.len() {
             self.active = i;
-            self.addr = self.tabs[i].current_url();
+            self.addr = shown_url(&self.tabs[i].current_url());
             self.addr_focused = false;
         }
     }
@@ -1686,7 +1774,7 @@ impl App {
         }
         self.tabs.remove(i);
         if self.tabs.is_empty() {
-            self.tabs.push(Pane::new(&normalize_url(&self.bcfg.home)));
+            self.tabs.push(Pane::new(&new_tab_url(&self.bcfg.home)));
         }
         if i < self.active {
             self.active -= 1;
@@ -1713,68 +1801,64 @@ impl App {
         } else {
             tab.start_url = url.clone();
         }
-        self.addr = url;
+        self.addr = shown_url(&url);
     }
 
     // ── каркас окна ──
 
-    fn top_bar(&mut self, ctx: &egui::Context) {
+    /// Стрелки, кнопки меню и адресная строка: всё в левой колонке.
+    fn nav_block(&mut self, ui: &mut egui::Ui) {
         let mut go: Option<String> = None;
         let mut toggle = false;
         let mut toggle_dots = false;
         let has = self.tabs[self.active].view.is_some();
-        egui::TopBottomPanel::top("top")
-            .frame(Frame::new().fill(SIDE_BG).inner_margin(Margin::symmetric(12, 8)))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    let tab = &self.tabs[self.active];
-                    if icon_button(ui, NavIcon::Back, has).clicked() {
-                        if let Some(b) = &tab.view {
-                            b.back();
-                        }
-                    }
-                    if icon_button(ui, NavIcon::Forward, has).clicked() {
-                        if let Some(b) = &tab.view {
-                            b.forward();
-                        }
-                    }
-                    if icon_button(ui, NavIcon::Reload, has).clicked() {
-                        if let Some(b) = &tab.view {
-                            b.reload();
-                        }
-                    }
-                    let width = (ui.available_width() - 86.0 - 56.0).max(120.0);
-                    Frame::new()
-                        .fill(FIELD_BG)
-                        .corner_radius(CornerRadius::same(20))
-                        .inner_margin(Margin::symmetric(14, 6))
-                        .show(ui, |ui| {
-                            let resp = ui.add(
-                                egui::TextEdit::singleline(&mut self.addr)
-                                    .frame(false)
-                                    .desired_width(width - 28.0)
-                                    .hint_text("Адрес сайта или запрос для поиска")
-                                    .font(FontId::proportional(15.0)),
-                            );
-                            self.addr_focused = resp.has_focus();
-                            if resp.gained_focus() {
-                                if let Some(b) = &self.tabs[self.active].view {
-                                    b.focus_parent();
-                                }
-                            }
-                            if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                                go = Some(self.addr.clone());
-                            }
-                        });
-                    if sticker_button(ui, self.tools_open).clicked() {
-                        toggle = true;
-                    }
-                    if dots_button(ui, self.dots_open).clicked() {
-                        toggle_dots = true;
-                    }
-                });
+        let nav = self.tabs[self.active].nav.load(Ordering::Relaxed);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            let tab = &self.tabs[self.active];
+            if icon_button(ui, NavIcon::Back, has && nav & 1 != 0).clicked() && nav & 1 != 0 {
+                if let Some(b) = &tab.view {
+                    b.back();
+                }
+            }
+            if icon_button(ui, NavIcon::Forward, has && nav & 2 != 0).clicked() && nav & 2 != 0 {
+                if let Some(b) = &tab.view {
+                    b.forward();
+                }
+            }
+            if icon_button(ui, NavIcon::Reload, has).clicked() {
+                if let Some(b) = &tab.view {
+                    b.reload();
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if sticker_button(ui, self.tools_open).clicked() {
+                    toggle = true;
+                }
+                if dots_button(ui, self.dots_open).clicked() {
+                    toggle_dots = true;
+                }
             });
+        });
+        ui.add_space(8.0);
+        Frame::new().fill(FIELD_BG).corner_radius(CornerRadius::same(20)).inner_margin(Margin::symmetric(14, 6)).show(ui, |ui| {
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut self.addr)
+                    .frame(false)
+                    .desired_width(ui.available_width())
+                    .hint_text("Адрес или поиск")
+                    .font(FontId::proportional(15.0)),
+            );
+            self.addr_focused = resp.has_focus();
+            if resp.gained_focus() {
+                if let Some(b) = &self.tabs[self.active].view {
+                    b.focus_parent();
+                }
+            }
+            if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                go = Some(self.addr.clone());
+            }
+        });
         if let Some(g) = go {
             self.go(&g);
         }
@@ -1795,7 +1879,7 @@ impl App {
         let mut open_downloads = false;
         let active_downloads = self.downloads.iter().filter(|d| d.state == store::DL_ACTIVE).count();
         egui::SidePanel::left("tabs")
-            .exact_width(220.0)
+            .exact_width(250.0)
             .resizable(false)
             .frame(Frame::new().fill(SIDE_BG).inner_margin(Margin::same(10)))
             .show(ctx, |ui| {
@@ -1804,7 +1888,9 @@ impl App {
                     paint_logo(ui.painter(), r);
                     ui.label(RichText::new("Petal").size(22.0).strong().color(TEXT));
                 });
-                ui.add_space(8.0);
+                ui.add_space(10.0);
+                self.nav_block(ui);
+                ui.add_space(12.0);
                 ui.label(RichText::new("Вкладки").size(13.0).color(MUTED));
                 ui.add_space(4.0);
                 if accent_button(ui, "+ Новая вкладка").clicked() {
@@ -1870,7 +1956,7 @@ impl App {
             ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
         }
         if new_tab {
-            self.open_tab(&normalize_url(&self.bcfg.home.clone()));
+            self.open_tab(&new_tab_url(&self.bcfg.home));
         } else if let Some(i) = close {
             self.close_tab(i);
         } else if let Some(i) = select {
@@ -2050,7 +2136,7 @@ impl App {
     }
 
     fn open_private_tab(&mut self) {
-        self.tabs.push(Pane::private(&normalize_url(&self.bcfg.home)));
+        self.tabs.push(Pane::private(&new_tab_url(&self.bcfg.home)));
         self.select_tab(self.tabs.len() - 1);
     }
 
@@ -3577,8 +3663,6 @@ impl eframe::App for App {
         self.update_mini_player(ctx);
 
         if !self.page_fs && self.mini.is_none() {
-            // Верхняя полоса идёт первой, чтобы тянуться на всю ширину окна.
-            self.top_bar(ctx);
             self.tabs_panel(ctx);
             if self.tools_open {
                 self.tools_menu(ctx);
@@ -3605,7 +3689,7 @@ impl eframe::App for App {
         if !self.addr_focused {
             if let Some(u) = self.tabs[active].url() {
                 if !u.is_empty() && u != self.addr {
-                    self.addr = u;
+                    self.addr = shown_url(&u);
                 }
             }
         }
