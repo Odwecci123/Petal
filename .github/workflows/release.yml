@@ -1,0 +1,74 @@
+# Собирает Petal для Windows и выкладывает установщик на страницу релизов GitHub.
+# Запуск: отправьте тег вида v1.0.0 (git tag v1.0.0 && git push origin v1.0.0)
+# или нажмите «Run workflow» на вкладке Actions.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Tests
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download WebView2 bootstrapper
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile "dist/MicrosoftEdgeWebview2Setup.exe"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.ver.outputs.version }}" installer\petal.iss
+
+      - name: Portable zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/portable | Out-Null
+          Copy-Item target/release/petal.exe dist/portable/
+          "" | Out-File -Encoding ascii dist/portable/portable.txt
+          Compress-Archive -Path dist/portable/* -DestinationPath "dist/Petal-portable-${{ steps.ver.outputs.version }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: petal-windows
+          path: |
+            dist/Petal-Setup-*.exe
+            dist/Petal-portable-*.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Petal-Setup-*.exe
+            dist/Petal-portable-*.zip
