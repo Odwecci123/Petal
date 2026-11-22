@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::f64::consts::TAU;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -25,8 +25,43 @@ const BG: Color32 = Color32::from_rgb(31, 31, 31);
 const SIDE_BG: Color32 = Color32::from_rgb(17, 17, 23);
 const FIELD_BG: Color32 = Color32::from_rgb(38, 38, 50);
 const CARD_BG: Color32 = Color32::from_rgb(32, 32, 43);
-const ACCENT_A: Color32 = Color32::from_rgb(236, 72, 153);
-const ACCENT_B: Color32 = Color32::from_rgb(124, 92, 255);
+static ACC_A: AtomicU32 = AtomicU32::new(0xEC4899);
+static ACC_B: AtomicU32 = AtomicU32::new(0x7C5CFF);
+static ANIM_ON: AtomicBool = AtomicBool::new(true);
+
+fn rgb(n: u32) -> Color32 {
+    Color32::from_rgb((n >> 16) as u8, (n >> 8) as u8, n as u8)
+}
+fn accent_a() -> Color32 {
+    rgb(ACC_A.load(Ordering::Relaxed))
+}
+fn accent_b() -> Color32 {
+    rgb(ACC_B.load(Ordering::Relaxed))
+}
+/// Тот же цвет, но светлее: для состояния «наведено».
+fn lit(c: Color32) -> Color32 {
+    mix(c, Color32::WHITE, 0.24)
+}
+fn alpha(c: Color32, a: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a)
+}
+/// Светлый оттенок второго акцента: для подсветки текущего пункта и ссылок.
+fn link() -> Color32 {
+    mix(accent_b(), Color32::WHITE, 0.4)
+}
+/// Анимации egui, которые можно выключить в настройках.
+trait AnimExt {
+    fn abt(&self, id: egui::Id, v: bool, t: f32) -> f32;
+    fn avt(&self, id: egui::Id, v: f32, t: f32) -> f32;
+}
+impl AnimExt for egui::Context {
+    fn abt(&self, id: egui::Id, v: bool, t: f32) -> f32 {
+        self.animate_bool_with_time(id, v, if ANIM_ON.load(Ordering::Relaxed) { t } else { 0.0 })
+    }
+    fn avt(&self, id: egui::Id, v: f32, t: f32) -> f32 {
+        self.animate_value_with_time(id, v, if ANIM_ON.load(Ordering::Relaxed) { t } else { 0.0 })
+    }
+}
 const TEXT: Color32 = Color32::from_rgb(232, 234, 237);
 const MUTED: Color32 = Color32::from_rgb(154, 160, 166);
 const LINK: Color32 = Color32::from_rgb(160, 168, 255);
@@ -67,6 +102,81 @@ const TOOLS: [(Tool, &str, Color32); 8] = [
     (Tool::Settings, "Настройки", MUTED),
     (Tool::Downloads, "Загрузки", GREEN),
 ];
+
+// ───────────────────────── Расширения Chrome ─────────────────────────
+
+fn extensions_dir() -> PathBuf {
+    std::env::current_dir().unwrap_or_default().join("extensions")
+}
+
+/// Имя расширения из его manifest.json (с учётом переводов «__MSG_…__»).
+fn extension_name(dir: &Path) -> String {
+    let fallback = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let Ok(text) = std::fs::read_to_string(dir.join("manifest.json")) else { return fallback };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')) else { return fallback };
+    let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    if let Some(key) = name.strip_prefix("__MSG_").and_then(|k| k.strip_suffix("__")) {
+        for lang in ["ru", "en", "en_US"] {
+            let Ok(m) = std::fs::read_to_string(dir.join("_locales").join(lang).join("messages.json")) else { continue };
+            let Ok(mv) = serde_json::from_str::<serde_json::Value>(m.trim_start_matches('\u{feff}')) else { continue };
+            let found = mv.as_object().and_then(|o| o.iter().find(|(k, _)| k.eq_ignore_ascii_case(key))).and_then(|(_, e)| e.get("message")).and_then(|m| m.as_str());
+            if let Some(f) = found {
+                return f.to_string();
+            }
+        }
+        return fallback;
+    }
+    if name.is_empty() { fallback } else { name }
+}
+
+/// Установленные расширения: (папка, название).
+fn list_extensions() -> Vec<(String, String)> {
+    let mut v = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(extensions_dir()) {
+        for e in rd.flatten() {
+            if e.path().is_dir() {
+                v.push((e.file_name().to_string_lossy().to_string(), extension_name(&e.path())));
+            }
+        }
+    }
+    v.sort();
+    v
+}
+
+/// Скачивает расширение из Chrome Web Store и распаковывает его в папку extensions. Возвращает его название.
+fn install_extension(id: &str) -> Result<String, String> {
+    let url = format!(
+        "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130.0.0.0&acceptformat=crx2,crx3&x=id%3D{id}%26installsource%3Dondemand%26uc"
+    );
+    let resp = ehttp::fetch_blocking(&ehttp::Request::get(url)).map_err(|e| format!("Не удалось скачать: {e}"))?;
+    if resp.status != 200 {
+        return Err(format!("Магазин ответил кодом {}. Проверьте ссылку или доступ к Google.", resp.status));
+    }
+    let off = store::crx_zip_offset(&resp.bytes).ok_or("Скачанный файл не похож на расширение.")?;
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&resp.bytes[off..])).map_err(|e| format!("Архив расширения повреждён: {e}"))?;
+    let dir = extensions_dir().join(id);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    for i in 0..zip.len() {
+        let mut f = zip.by_index(i).map_err(|e| e.to_string())?;
+        let Some(rel) = f.enclosed_name() else { continue };
+        let out = dir.join(rel);
+        if f.is_dir() {
+            let _ = std::fs::create_dir_all(&out);
+        } else {
+            if let Some(parent) = out.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let mut file = File::create(&out).map_err(|e| e.to_string())?;
+            std::io::copy(&mut f, &mut file).map_err(|e| e.to_string())?;
+        }
+    }
+    if !dir.join("manifest.json").exists() {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err("В архиве нет manifest.json: это не расширение.".to_string());
+    }
+    Ok(extension_name(&dir))
+}
 
 // ───────────────────────── Случайные числа ─────────────────────────
 
@@ -333,7 +443,7 @@ fn draw_die(ui: &mut egui::Ui, n: u8, size: f32, slot: f32) {
     let (slot_rect, _) = ui.allocate_exact_size(Vec2::new(slot, slot), Sense::hover());
     let rect = egui::Rect::from_center_size(slot_rect.center(), Vec2::splat(size));
     let p = ui.painter();
-    p.rect_filled(rect.translate(Vec2::new(0.0, 5.0)), CornerRadius::same((size * 0.22) as u8), Color32::from_rgba_unmultiplied(236, 72, 153, 60));
+    p.rect_filled(rect.translate(Vec2::new(0.0, 5.0)), CornerRadius::same((size * 0.22) as u8), alpha(accent_a(), 60));
     grad_rrect(p, rect, size * 0.22, Color32::from_rgb(250, 250, 255), Color32::from_rgb(214, 208, 240), true);
     let d = size * 0.25;
     let c = rect.center();
@@ -432,8 +542,8 @@ fn draw_wheel(ui: &mut egui::Ui, items: &[String], angle: f64, size: f32) -> boo
     let hub = egui::Rect::from_center_size(c, Vec2::splat(76.0));
     let resp = ui.interact(hub, ui.id().with("wheel_hub"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
-    painter.circle_filled(c, 38.0 + 3.0 * t, Color32::from_rgba_unmultiplied(236, 72, 153, (50.0 + 60.0 * t) as u8));
-    painter.circle_filled(c, 33.0 + 2.0 * t, mix(Color32::from_rgb(70, 44, 120), ACCENT_B, t));
+    painter.circle_filled(c, 38.0 + 3.0 * t, alpha(accent_a(), (50.0 + 60.0 * t) as u8));
+    painter.circle_filled(c, 33.0 + 2.0 * t, mix(Color32::from_rgb(70, 44, 120), accent_b(), t));
     painter.circle_stroke(c, 33.0 + 2.0 * t, Stroke::new(2.5_f32, Color32::WHITE));
     painter.text(c, Align2::CENTER_CENTER, "Крутить", FontId::proportional(13.0), Color32::WHITE);
 
@@ -446,7 +556,7 @@ fn draw_wheel(ui: &mut egui::Ui, items: &[String], angle: f64, size: f32) -> boo
     ));
     painter.add(egui::Shape::convex_polygon(
         vec![egui::pos2(c.x - 14.0, rect.top() + 6.0), egui::pos2(c.x + 14.0, rect.top() + 6.0), tip],
-        ACCENT_A,
+        accent_a(),
         Stroke::new(2.5_f32, Color32::WHITE),
     ));
     resp.clicked()
@@ -507,15 +617,15 @@ const NEWTAB_HTML: &str = r##"<!doctype html><html lang="ru"><head><meta charset
 <style>
 html,body{margin:0;height:100%;background:#131316;color:#fff;font-family:"Segoe UI",system-ui,sans-serif;overflow:hidden}
 body::before,body::after{content:"";position:fixed;width:46vmax;height:46vmax;border-radius:50%;filter:blur(90px);opacity:.28;z-index:0;pointer-events:none}
-body::before{background:#ff5d8f;left:-14vmax;top:-18vmax;animation:d1 22s ease-in-out infinite alternate}
-body::after{background:#6a5cff;right:-16vmax;bottom:-22vmax;animation:d2 26s ease-in-out infinite alternate}
+body::before{background:var(--a);left:-14vmax;top:-18vmax;animation:d1 22s ease-in-out infinite alternate}
+body::after{background:var(--b);right:-16vmax;bottom:-22vmax;animation:d2 26s ease-in-out infinite alternate}
 @keyframes d1{to{transform:translate(18vmax,10vmax) scale(1.15)}}
 @keyframes d2{to{transform:translate(-16vmax,-8vmax) scale(1.2)}}
 .w{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;padding-top:15vh}
 .l{display:flex;align-items:center;gap:22px;margin-bottom:56px;animation:up .8s cubic-bezier(.2,.8,.2,1) both}
 .l img{width:64px;height:64px;border-radius:16px;animation:fl 5s ease-in-out infinite;transition:transform .5s}
 .l img:hover{transform:rotate(72deg) scale(1.1)}
-.l span{font-size:68px;font-weight:700;letter-spacing:-1px;background:linear-gradient(90deg,#fff,#ffc2d6,#c9c2ff,#fff);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 8s linear infinite}
+.l span{font-size:68px;font-weight:700;letter-spacing:-1px;background:linear-gradient(90deg,#fff,color-mix(in srgb,var(--a) 55%,#fff),color-mix(in srgb,var(--b) 55%,#fff),#fff);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 8s linear infinite}
 @keyframes fl{50%{transform:translateY(-6px) rotate(-4deg)}}
 @keyframes sh{to{background-position:-300% 0}}
 @keyframes up{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
@@ -523,19 +633,19 @@ form{width:min(850px,86vw);position:relative;animation:up .8s .15s cubic-bezier(
 input{box-sizing:border-box;width:100%;height:54px;border:0;border-radius:27px;background:rgba(40,40,46,.85);color:#fff;font-size:17px;padding:0 24px 0 58px;outline:none;transition:box-shadow .25s,background .25s,transform .25s}
 input::placeholder{color:#9a9aa3}
 input:hover{background:rgba(52,52,60,.9)}
-input:focus{background:rgba(52,52,60,.95);box-shadow:0 0 0 2px #7a7cff,0 8px 30px rgba(122,124,255,.28);transform:translateY(-1px)}
+input:focus{background:rgba(52,52,60,.95);box-shadow:0 0 0 2px var(--b),0 8px 30px color-mix(in srgb,var(--b) 35%,transparent);transform:translateY(-1px)}
 svg{position:absolute;left:21px;top:16px;transition:stroke .25s}
-form:focus-within svg{stroke:#b9bbff}
+form:focus-within svg{stroke:color-mix(in srgb,var(--b) 50%,#fff)}
 .tiles{position:relative;z-index:1;display:flex;flex-wrap:wrap;justify-content:center;gap:14px;width:min(850px,86vw);margin-top:44px;animation:up .8s .3s cubic-bezier(.2,.8,.2,1) both}
 .t{position:relative;width:150px;height:104px;border-radius:22px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#e8e8f0;text-decoration:none;font-size:14px;cursor:pointer;transition:transform .2s,background .2s,box-shadow .2s;animation:pop .5s both}
-.t:hover{transform:translateY(-4px);background:rgba(255,255,255,.11);box-shadow:0 12px 30px rgba(0,0,0,.35),0 0 0 1px rgba(160,150,255,.35)}
+.t:hover{transform:translateY(-4px);background:rgba(255,255,255,.11);box-shadow:0 12px 30px rgba(0,0,0,.35),0 0 0 1px color-mix(in srgb,var(--b) 55%,transparent)}
 .t img,.t .ph{width:40px;height:40px;border-radius:11px;object-fit:cover}
-.t .ph{display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;background:linear-gradient(135deg,#ec4899,#7c5cff)}
+.t .ph{display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;background:linear-gradient(135deg,var(--a),var(--b))}
 .t span{max-width:126px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .t .x{position:absolute;right:7px;top:7px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;font-size:14px;line-height:22px;text-align:center;opacity:0;transition:opacity .2s,background .2s}
-.t:hover .x{opacity:1}.t .x:hover{background:#ec4899}
+.t:hover .x{opacity:1}.t .x:hover{background:var(--a)}
 .t.add{border-style:dashed;color:#9a9aa3}
-.t.add .pl{width:40px;height:40px;border-radius:11px;border:2px dashed rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:24px;color:#b9bbff;transition:transform .3s}
+.t.add .pl{width:40px;height:40px;border-radius:11px;border:2px dashed rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:24px;color:color-mix(in srgb,var(--b) 50%,#fff);transition:transform .3s}
 .t.add:hover .pl{transform:rotate(90deg)}
 @keyframes pop{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
 #m{position:fixed;inset:0;z-index:5;background:rgba(10,10,14,.6);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center}
@@ -546,8 +656,25 @@ form:focus-within svg{stroke:#b9bbff}
 #m input{height:44px;border-radius:14px;padding:0 16px;margin-bottom:10px;font-size:15px;background:#2b2b36}
 #m .r{display:flex;gap:10px;margin-top:6px}
 #m button{flex:1;height:42px;border:0;border-radius:14px;font-size:15px;cursor:pointer;color:#fff;background:#2f2f3c;transition:filter .2s}
-#m button.ok{background:linear-gradient(90deg,#ec4899,#7c5cff)}#m button:hover{filter:brightness(1.2)}
-</style></head><body><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span>Petal</span></div>
+#m button.ok{background:linear-gradient(90deg,var(--a),var(--b))}#m button:hover{filter:brightness(1.2)}
+body:not(.wp-aurora)::before,body:not(.wp-aurora)::after{display:none}
+body.wp-gradient{background:linear-gradient(135deg,color-mix(in srgb,var(--a) 30%,#131316),#131316 48%,color-mix(in srgb,var(--b) 34%,#131316));background-size:180% 180%;animation:gs 16s ease-in-out infinite alternate}
+@keyframes gs{to{background-position:100% 100%}}
+body.wp-image{background:#131316 center/cover no-repeat fixed}
+.sky{position:fixed;inset:0;z-index:0;display:none}
+body.wp-stars .sky{display:block}
+.waves{position:fixed;left:0;right:0;bottom:0;height:34vh;z-index:0;display:none;overflow:hidden}
+body.wp-waves .waves{display:block}
+.waves svg{position:absolute;left:0;bottom:0;width:200%;height:100%;animation:wv 18s linear infinite}
+.waves svg:nth-child(2){animation-duration:27s;animation-direction:reverse;opacity:.7;height:78%}
+@keyframes wv{to{transform:translateX(-50%)}}
+.clk{display:@@CLK@@;text-align:center;margin:-26px 0 30px;animation:up .8s .08s cubic-bezier(.2,.8,.2,1) both}
+.clk .tm{font-size:84px;font-weight:300;letter-spacing:-2px;line-height:1}
+.clk .gr{margin-top:8px;font-size:18px;color:#c9c9d3}
+.clk .dt{font-size:14px;color:#8d8d98;margin-top:4px;text-transform:capitalize}
+body.noanim *,body.noanim::before,body.noanim::after{animation:none!important;transition:none!important}
+</style></head><body class="wp-@@WP@@ @@NOANIM@@"><canvas class="sky" id="sky"></canvas><div class="waves"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 50 Q150 10 300 50 T600 50 T900 50 T1200 50 V100 H0Z" fill="var(--a)" fill-opacity=".16"/></svg><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 60 Q150 25 300 60 T600 60 T900 60 T1200 60 V100 H0Z" fill="var(--b)" fill-opacity=".22"/></svg></div><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span>Petal</span></div>
+<div class="clk"><div class="tm" id="tm"></div><div class="gr" id="gr"></div><div class="dt" id="dt"></div></div>
 <form id="f"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9a9aa3" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
 <input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в @@ENGINE@@ или введите адрес"></form>
 <div class="tiles" id="tiles"></div></div>
@@ -574,6 +701,15 @@ M.addEventListener('mousedown',function(e){if(e.target===M)closeM();});
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeM();});
 document.getElementById('mf').addEventListener('submit',function(e){e.preventDefault();var u=document.getElementById('mu').value.trim(),n=document.getElementById('mn').value.trim();if(!u)return;if(!/^https?:\/\//i.test(u))u='https://'+u;B.push({n:n||host(u).replace(/^www\./,''),u:u});save(B);draw();closeM();});
 draw();
+(function(){var NAME='@@NAME@@';function z(n){return (n<10?'0':'')+n;}
+function tick(){var d=new Date(),h=d.getHours(),g=h<5?'Доброй ночи':h<12?'Доброе утро':h<18?'Добрый день':'Добрый вечер';
+document.getElementById('tm').textContent=z(h)+':'+z(d.getMinutes());document.getElementById('gr').textContent=g+(NAME?', '+NAME:'');
+try{document.getElementById('dt').textContent=d.toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});}catch(e){}}
+tick();setInterval(tick,10000);})();
+(function(){if(document.body.className.indexOf('wp-stars')<0)return;var c=document.getElementById('sky'),x=c.getContext('2d'),S=[],n=0;
+function rs(){c.width=innerWidth;c.height=innerHeight;S=[];for(var i=0;i<Math.floor(c.width*c.height/5200);i++)S.push({x:Math.random()*c.width,y:Math.random()*c.height,r:Math.random()*1.4+.3,p:Math.random()*6.28,s:Math.random()*.02+.005});}
+rs();addEventListener('resize',rs);var anim=document.body.className.indexOf('noanim')<0;
+function f(){x.clearRect(0,0,c.width,c.height);for(var i=0;i<S.length;i++){var t=S[i];if(anim)t.p+=t.s;x.globalAlpha=.35+.65*Math.abs(Math.sin(t.p));x.fillStyle='#fff';x.beginPath();x.arc(t.x,t.y,t.r,0,6.283);x.fill();}if(anim)requestAnimationFrame(f);}f();})();
 </script></body></html>"##;
 
 const INCOGNITO_HTML: &str = r##"<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Новая вкладка</title>
@@ -641,14 +777,39 @@ fn page_url(name: &str) -> String {
 }
 
 /// Пишет обе стартовые страницы (обычную и инкогнито) в папку данных; поисковая система вшивается в них.
-fn write_pages(search: &str) {
+fn write_pages(c: &store::BrowserCfg) {
     let fill = |t: &str| {
-        t.replace("@@ENGINE@@", store::search_name(search))
-            .replace("@@SEARCH@@", store::search_prefix(search))
+        t.replace("@@ENGINE@@", store::search_name(&c.search))
+            .replace("@@SEARCH@@", store::search_prefix(&c.search))
     };
-    let html = fill(NEWTAB_HTML).replace("@@LOGO@@", &base64(include_bytes!("../assets/petal.png")));
+    let (a, b) = store::theme_colors(c);
+    let img = if c.wallpaper == "image" && !c.wallpaper_img.is_empty() {
+        match std::fs::read(&c.wallpaper_img) {
+            Ok(d) if d.len() <= 6_000_000 => {
+                let mime = if c.wallpaper_img.to_lowercase().ends_with(".png") { "image/png" } else { "image/jpeg" };
+                format!("body.wp-image{{background-image:linear-gradient(rgba(10,10,14,.52),rgba(10,10,14,.52)),url(data:{mime};base64,{})}}", base64(&d))
+            }
+            _ => String::new(),
+        }
+    } else {
+        String::new()
+    };
+    let name: String = c.user_name.chars().filter(|ch| !matches!(ch, '\'' | '"' | '\\' | '<' | '>' | '&' | '\n' | '\r')).collect();
+    let html = fill(NEWTAB_HTML)
+        .replace("@@LOGO@@", &base64(include_bytes!("../assets/petal.png")))
+        .replace("</style>", &format!(":root{{--a:#{a:06x};--b:#{b:06x}}}{img}</style>"))
+        .replace("@@WP@@", &c.wallpaper)
+        .replace("@@NOANIM@@", if c.anim { "" } else { "noanim" })
+        .replace("@@CLK@@", if c.clock { "block" } else { "none" })
+        .replace("@@NAME@@", &name);
     let _ = std::fs::write("petal_newtab.html", html);
     let _ = std::fs::write("petal_incognito.html", fill(INCOGNITO_HTML));
+}
+
+/// Всё, от чего зависит вид стартовых страниц: при изменении их надо записать заново.
+fn pages_key(c: &store::BrowserCfg) -> String {
+    let (a, b) = store::theme_colors(c);
+    format!("{}|{a:x}|{b:x}|{}|{}|{}|{}|{}", c.search, c.wallpaper, c.wallpaper_img, c.clock, c.user_name, c.anim)
 }
 
 fn newtab_url() -> &'static str {
@@ -657,6 +818,19 @@ fn newtab_url() -> &'static str {
 
 fn incognito_url() -> &'static str {
     INCOGNITO_URL.get_or_init(|| page_url("petal_incognito.html"))
+}
+
+/// Фон под страницей, пока она грузится: тот же, что у собственных стартовых страниц, чтобы не было вспышки другого цвета.
+fn page_bg(url: &str, incognito: bool) -> Color32 {
+    if url.starts_with("file://") && url.ends_with("/petal_incognito.html") {
+        Color32::from_rgb(26, 26, 28)
+    } else if url.starts_with("file://") && url.ends_with("/petal_newtab.html") {
+        Color32::from_rgb(19, 19, 22)
+    } else if incognito {
+        Color32::from_rgb(31, 31, 31)
+    } else {
+        BG
+    }
 }
 
 /// Адрес для новой вкладки: стартовая страница Petal, если в настройках не выбрана своя домашняя.
@@ -773,7 +947,7 @@ document.addEventListener('fullscreenchange',hide);
                 })
                 .with_incognito(incognito)
                 // Тёмный фон до загрузки страницы и тёмная тема для сайтов, которые её поддерживают.
-                .with_background_color((31, 31, 31, 255))
+                .with_background_color({ let c = super::page_bg(&url, incognito); (c.r(), c.g(), c.b(), 255) })
                 .with_theme(if cfg.dark_sites { wry::Theme::Dark } else { wry::Theme::Light })
                 .with_additional_browser_args(store::browser_args(&cfg))
                 .with_download_started_handler(|url, path| {
@@ -820,6 +994,11 @@ document.addEventListener('fullscreenchange',hide);
                     }
                 })
                 ;
+            if cfg.extensions {
+                let dir = std::env::current_dir().unwrap_or_default().join("extensions");
+                let _ = std::fs::create_dir_all(&dir);
+                builder = builder.with_browser_extensions_enabled(true).with_extensions_path(dir);
+            }
             let ua = store::user_agent(&cfg.ua);
             if !ua.is_empty() {
                 builder = builder.with_user_agent(ua);
@@ -1179,14 +1358,14 @@ fn calc_key(ui: &mut egui::Ui, label: &str, w: f32) -> egui::Response {
     let r = rect.translate(Vec2::new(0.0, down - 1.0 * t));
     let p = ui.painter();
     let (base, hot, ink) = match label {
-        "=" => (ACCENT_A, Color32::from_rgb(255, 120, 175), Color32::WHITE),
+        "=" => (accent_a(), lit(accent_a()), Color32::WHITE),
         "C" | "Стереть" => (Color32::from_rgb(78, 38, 62), Color32::from_rgb(120, 52, 84), Color32::from_rgb(255, 150, 170)),
-        "+" | "-" | "*" | "/" | "^" | "(" | ")" => (Color32::from_rgb(52, 46, 96), Color32::from_rgb(80, 70, 150), LINK),
+        "+" | "-" | "*" | "/" | "^" | "(" | ")" => (Color32::from_rgb(52, 46, 96), Color32::from_rgb(80, 70, 150), link()),
         "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "." => (Color32::from_rgb(44, 44, 58), Color32::from_rgb(66, 66, 88), Color32::WHITE),
         _ => (Color32::from_rgb(36, 40, 62), Color32::from_rgb(54, 62, 100), Color32::from_rgb(150, 190, 255)),
     };
     if label == "=" {
-        grad_rrect(p, r, 15.0, mix(ACCENT_A, hot, t), mix(ACCENT_B, Color32::from_rgb(150, 120, 255), t), false);
+        grad_rrect(p, r, 15.0, mix(accent_a(), hot, t), mix(accent_b(), lit(accent_b()), t), false);
     } else {
         p.rect_filled(r.translate(Vec2::new(0.0, 2.0)), CornerRadius::same(15), Color32::from_rgba_unmultiplied(0, 0, 0, 70));
         p.rect_filled(r, CornerRadius::same(15), mix(base, hot, t));
@@ -1257,7 +1436,7 @@ fn combo(ui: &mut egui::Ui, id: &str, label: &str, opts: &[(&str, &str)], cur: &
 fn header(ui: &mut egui::Ui, title: &str, sub: &str) {
     ui.label(RichText::new(title).size(30.0).strong().color(TEXT));
     let (bar, _) = ui.allocate_exact_size(Vec2::new(54.0, 4.0), Sense::hover());
-    grad_rrect(ui.painter(), bar, 2.0, ACCENT_A, ACCENT_B, false);
+    grad_rrect(ui.painter(), bar, 2.0, accent_a(), accent_b(), false);
     ui.add_space(2.0);
     ui.label(RichText::new(sub).size(14.0).color(MUTED));
     ui.add_space(12.0);
@@ -1305,9 +1484,24 @@ fn grad_rrect(p: &egui::Painter, rect: egui::Rect, r: f32, c0: Color32, c1: Colo
     p.add(egui::Shape::mesh(mesh));
 }
 
+/// Мягкое круглое пятно света: в центре заданный цвет, к краю прозрачное.
+fn radial_glow(p: &egui::Painter, center: egui::Pos2, radius: f32, color: Color32) {
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(center, color);
+    let n = 32u32;
+    for i in 0..n {
+        let a = i as f32 / n as f32 * std::f32::consts::TAU;
+        mesh.colored_vertex(center + Vec2::new(a.cos(), a.sin()) * radius, Color32::TRANSPARENT);
+    }
+    for i in 0..n {
+        mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
+    }
+    p.add(egui::Shape::mesh(mesh));
+}
+
 /// Выпадающая карточка, которая плавно вырастает из кнопки. Возвращает видимый прямоугольник.
 fn popup_card(ctx: &egui::Context, key: &str, open: bool, pos: egui::Pos2, width: f32, up: bool, add: impl FnOnce(&mut egui::Ui)) -> Option<egui::Rect> {
-    let t = ctx.animate_bool_with_time(egui::Id::new((key, "t")), open, 0.26);
+    let t = ctx.abt(egui::Id::new((key, "t")), open, 0.26);
     if t < 0.002 {
         return None;
     }
@@ -1335,7 +1529,7 @@ fn popup_card(ctx: &egui::Context, key: &str, open: bool, pos: egui::Pos2, width
 
 /// Плавная «степень наведения» 0..1 для кнопки.
 fn hover_t(ui: &egui::Ui, resp: &egui::Response) -> f32 {
-    ui.ctx().animate_bool_with_time(resp.id.with("hov"), resp.hovered(), 0.15)
+    ui.ctx().abt(resp.id.with("hov"), resp.hovered(), 0.15)
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Response {
@@ -1352,7 +1546,7 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
             target += std::f32::consts::TAU;
             ui.ctx().data_mut(|d| d.insert_temp(id, target));
         }
-        ui.ctx().animate_value_with_time(id.with("a"), target, 0.7)
+        ui.ctx().avt(id.with("a"), target, 0.7)
     } else {
         0.0
     };
@@ -1397,7 +1591,7 @@ fn downloads_button(ui: &mut egui::Ui, active: usize, open: bool) -> egui::Respo
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 42.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
-    let o = ui.ctx().animate_bool_with_time(resp.id.with("open"), open, 0.25);
+    let o = ui.ctx().abt(resp.id.with("open"), open, 0.25);
     let dark = Color32::from_rgb(10, 44, 40);
     let time = ui.input(|i| i.time) as f32;
     let p = ui.painter();
@@ -1451,8 +1645,8 @@ fn dots_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
-    let o = ui.ctx().animate_bool_with_time(resp.id.with("open"), open, 0.2);
-    let fill = mix(mix(FIELD_BG, Color32::from_rgb(72, 74, 82), t), LINK, o);
+    let o = ui.ctx().abt(resp.id.with("open"), open, 0.2);
+    let fill = mix(mix(FIELD_BG, Color32::from_rgb(72, 74, 82), t), link(), o);
     let ink = mix(mix(Color32::from_rgb(205, 208, 214), Color32::WHITE, t), Color32::from_rgb(24, 30, 48), o);
     let p = ui.painter();
     p.rect_filled(rect, CornerRadius::same(12), fill);
@@ -1476,7 +1670,7 @@ fn menu_item(ui: &mut egui::Ui, text: &str, color: Color32) -> bool {
     let p = ui.painter();
     p.rect_filled(rect, CornerRadius::same(13), Color32::from_rgba_unmultiplied(255, 255, 255, (18.0 * t) as u8));
     // Цветная «пуговка» с первой буквой.
-    let tint = if color == TEXT { LINK } else { color };
+    let tint = if color == TEXT { link() } else { color };
     let b = egui::Rect::from_center_size(rect.left_center() + Vec2::new(22.0, 0.0), Vec2::splat(28.0 + 2.0 * t));
     p.rect_filled(b, CornerRadius::same(9), Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), (38.0 + 40.0 * t) as u8));
     let letter: String = text.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
@@ -1529,8 +1723,8 @@ fn chip(ui: &mut egui::Ui, text: &str) -> egui::Response {
 fn accent_paint(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, text: &str) {
     let t = hover_t(ui, resp);
     let p = ui.painter();
-    p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), Color32::from_rgba_unmultiplied(124, 92, 255, (24.0 + 46.0 * t) as u8));
-    grad_rrect(p, rect, 14.0, mix(ACCENT_A, Color32::from_rgb(255, 120, 175), t), mix(ACCENT_B, Color32::from_rgb(150, 120, 255), t), false);
+    p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), alpha(accent_b(), (24.0 + 46.0 * t) as u8));
+    grad_rrect(p, rect, 14.0, mix(accent_a(), lit(accent_a()), t), mix(accent_b(), lit(accent_b()), t), false);
     p.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(15.0), Color32::WHITE);
 }
 
@@ -1558,11 +1752,11 @@ fn sticker_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
     let (rect0, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
-    let o = ui.ctx().animate_bool_with_time(resp.id.with("open"), open, 0.25);
+    let o = ui.ctx().abt(resp.id.with("open"), open, 0.25);
     let rect = rect0.translate(Vec2::new(0.0, -1.5 * t));
     let p = ui.painter();
-    p.rect_filled(rect0.translate(Vec2::new(0.0, 3.0)).expand(1.0 + 1.5 * t), CornerRadius::same(15), Color32::from_rgba_unmultiplied(236, 72, 153, (28.0 + 50.0 * t + 40.0 * o) as u8));
-    grad_rrect(p, rect, 13.0, mix(ACCENT_A, Color32::from_rgb(255, 120, 170), t), mix(ACCENT_B, Color32::from_rgb(150, 110, 255), t), true);
+    p.rect_filled(rect0.translate(Vec2::new(0.0, 3.0)).expand(1.0 + 1.5 * t), CornerRadius::same(15), alpha(accent_a(), (28.0 + 50.0 * t + 40.0 * o) as u8));
+    grad_rrect(p, rect, 13.0, mix(accent_a(), lit(accent_a()), t), mix(accent_b(), lit(accent_b()), t), true);
     p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.5_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (30.0 + 170.0 * o) as u8)), egui::StrokeKind::Inside);
     let c = rect.center();
     let spin = t * 0.55 + o * 0.45;
@@ -2009,6 +2203,11 @@ struct App {
     page_fs: bool,
     applied_zoom: u32,
     applied_search: String,
+    applied_scale: u32,
+    ext_input: String,
+    ext_status: String,
+    ext_list: Vec<(String, String)>,
+    ext_rx: Option<mpsc::Receiver<Result<String, String>>>,
     menu_pos: egui::Pos2,
     dl_open: bool,
     dl_pos: egui::Pos2,
@@ -2080,7 +2279,11 @@ impl App {
         let bcfg = store::load_cfg();
         let _ = FROZEN.set(bcfg.clone());
         sync_live(&bcfg);
-        write_pages(&bcfg.search);
+        let (ia, ib) = store::theme_colors(&bcfg);
+        ACC_A.store(ia, Ordering::Relaxed);
+        ACC_B.store(ib, Ordering::Relaxed);
+        ANIM_ON.store(bcfg.anim, Ordering::Relaxed);
+        write_pages(&bcfg);
         if bcfg.clear_on_exit {
             // Браузер ещё не запущен, поэтому его папку с cookie и кэшем можно стереть целиком.
             let _ = std::fs::remove_dir_all("WebView2");
@@ -2102,6 +2305,11 @@ impl App {
             page_fs: false,
             applied_zoom: 100,
             applied_search: String::new(),
+            applied_scale: 0,
+            ext_input: String::new(),
+            ext_status: String::new(),
+            ext_list: list_extensions(),
+            ext_rx: None,
             menu_pos: egui::Pos2::ZERO,
             dl_open: false,
             dl_pos: egui::Pos2::ZERO,
@@ -2271,11 +2479,11 @@ impl App {
         self.menu_pos = row.response.rect.left_bottom() + Vec2::new(0.0, 8.0);
         self.menu_btns = btns;
         ui.add_space(8.0);
-        let glow = ui.ctx().animate_bool_with_time(egui::Id::new("addr_glow"), self.addr_focused, 0.2);
+        let glow = ui.ctx().abt(egui::Id::new("addr_glow"), self.addr_focused, 0.2);
         Frame::new()
             .fill(FIELD_BG)
             .corner_radius(CornerRadius::same(20))
-            .stroke(Stroke::new(1.5_f32, mix(Color32::from_rgba_unmultiplied(124, 92, 255, 0), ACCENT_B, glow)))
+            .stroke(Stroke::new(1.5_f32, mix(alpha(accent_b(), 0), accent_b(), glow)))
             .inner_margin(Margin::symmetric(14, 6))
             .show(ui, |ui| {
             let resp = ui.add(
@@ -2317,12 +2525,25 @@ impl App {
         let mut open_downloads = false;
         let active_downloads = self.downloads.iter().filter(|d| d.state == store::DL_ACTIVE).count();
         egui::SidePanel::left("tabs")
-            .exact_width(250.0)
+            .exact_width(self.bcfg.sidebar_w as f32)
             .resizable(false)
             .frame(Frame::new().fill(SIDE_BG).inner_margin(Margin::same(10)))
             .show(ctx, |ui| {
-                let (g0, g1) = if self.tabs[self.active].incognito { (Color32::from_rgb(40, 40, 43), Color32::from_rgb(20, 20, 22)) } else { (Color32::from_rgb(30, 22, 46), Color32::from_rgb(15, 15, 20)) };
-                grad_rrect(ui.painter(), ui.max_rect().expand(10.0), 0.0, g0, g1, true);
+                let (g0, g1) = if self.tabs[self.active].incognito { (Color32::from_rgb(40, 40, 43), Color32::from_rgb(20, 20, 22)) } else { (mix(Color32::from_rgb(15, 15, 20), accent_b(), 0.16), Color32::from_rgb(15, 15, 20)) };
+                let full = ui.max_rect().expand(10.0);
+                grad_rrect(ui.painter(), full, 0.0, g0, g1, true);
+                if self.bcfg.glow && !self.tabs[self.active].incognito {
+                    // Два мягких пятна акцентных цветов медленно плавают за панелью.
+                    let t = if self.bcfg.anim { ui.input(|i| i.time) as f32 } else { 0.0 };
+                    let w = full.width();
+                    let c1 = full.left_top() + Vec2::new(w * 0.3 + (t * 0.3).sin() * 38.0, 130.0 + (t * 0.25).cos() * 46.0);
+                    let c2 = full.left_bottom() + Vec2::new(w * 0.8 + (t * 0.21).cos() * 30.0, -170.0 + (t * 0.27).sin() * 55.0);
+                    radial_glow(ui.painter(), c1, 200.0, alpha(accent_a(), 46));
+                    radial_glow(ui.painter(), c2, 230.0, alpha(accent_b(), 42));
+                    if self.bcfg.anim {
+                        ui.ctx().request_repaint_after(Duration::from_millis(60));
+                    }
+                }
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::hover());
                     paint_logo(ui.painter(), r);
@@ -2350,21 +2571,24 @@ impl App {
                     ui.spacing_mut().item_spacing.y = 4.0;
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let active = i == self.active;
-                        let (row, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
+                        let (row, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), if self.bcfg.compact_tabs { 34.0 } else { 40.0 }), Sense::click());
                         let close_rect = egui::Rect::from_center_size(row.right_center() - Vec2::new(16.0, 0.0), Vec2::splat(22.0));
                         let close_resp = ui.interact(close_rect, ui.id().with(("close_tab", i)), Sense::click());
-                        let ht = ui.ctx().animate_bool_with_time(resp.id.with("hov"), resp.hovered(), 0.14);
-                        let at = ui.ctx().animate_bool_with_time(resp.id.with("act"), active, 0.22);
+                        let ht = ui.ctx().abt(resp.id.with("hov"), resp.hovered(), 0.14);
+                        let at = ui.ctx().abt(resp.id.with("act"), active, 0.22);
                         let bg = mix(Color32::from_rgba_unmultiplied(44, 45, 50, (255.0 * ht) as u8), Color32::from_rgb(48, 56, 78), at);
                         let p = ui.painter();
                         p.rect_filled(row, CornerRadius::same(11), bg);
                         if at > 0.01 {
-                            p.rect_filled(egui::Rect::from_center_size(row.left_center() + Vec2::new(2.5, 0.0), Vec2::new(3.5, 22.0 * at)), CornerRadius::same(2), LINK);
+                            p.rect_stroke(row, CornerRadius::same(11), Stroke::new(1.2_f32, alpha(accent_b(), (110.0 * at) as u8)), egui::StrokeKind::Inside);
+                        }
+                        if at > 0.01 {
+                            p.rect_filled(egui::Rect::from_center_size(row.left_center() + Vec2::new(2.5, 0.0), Vec2::new(3.5, 22.0 * at)), CornerRadius::same(2), link());
                         }
                         // Цветной кружок с первой буквой сайта.
                         let label = tab.label();
                         let hue = tab.current_url().bytes().filter(|b| *b != b'/').take(24).fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
-                        let pal = [ACCENT_A, ACCENT_B, Color32::from_rgb(56, 189, 248), Color32::from_rgb(52, 211, 153), Color32::from_rgb(251, 146, 60), Color32::from_rgb(250, 204, 21)];
+                        let pal = [accent_a(), accent_b(), Color32::from_rgb(56, 189, 248), Color32::from_rgb(52, 211, 153), Color32::from_rgb(251, 146, 60), Color32::from_rgb(250, 204, 21)];
                         let avatar = if tab.incognito { PURPLE } else { pal[(hue % 6) as usize] };
                         let ac = row.left_center() + Vec2::new(22.0, 0.0);
                         let cur = tab.current_url();
@@ -2388,7 +2612,7 @@ impl App {
                             Align2::LEFT_CENTER,
                             label,
                             FontId::proportional(14.0),
-                            if active { LINK } else { TEXT },
+                            if active { link() } else { TEXT },
                         );
                         if close_resp.hovered() {
                             p.circle_filled(close_rect.center(), 10.0, Color32::from_rgb(70, 72, 78));
@@ -2427,7 +2651,7 @@ impl App {
     fn tools_menu(&mut self, ctx: &egui::Context) -> Option<egui::Rect> {
         let mut picked: Option<usize> = None;
         let wins = self.tool_win;
-        let card = popup_card(ctx, "tools", self.tools_open, self.menu_pos, 230.0, false, |ui| {
+        let card = popup_card(ctx, "tools", self.tools_open, self.menu_pos, self.bcfg.sidebar_w as f32 - 20.0, false, |ui| {
             ui.label(RichText::new("Функции").size(13.0).color(MUTED));
             ui.add_space(2.0);
             ui.spacing_mut().item_spacing.y = 2.0;
@@ -2506,7 +2730,7 @@ impl App {
         let mut picked: Option<usize> = None;
         let mut incognito = false;
         let wins = self.tool_win;
-        let card = popup_card(ctx, "dots", self.dots_open, self.menu_pos, 230.0, false, |ui| {
+        let card = popup_card(ctx, "dots", self.dots_open, self.menu_pos, self.bcfg.sidebar_w as f32 - 20.0, false, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             if menu_item(ui, "Инкогнито", PURPLE) {
                 incognito = true;
@@ -2539,7 +2763,7 @@ impl App {
         let time = ctx.input(|i| i.time) as f32;
         let mut clear = false;
         let downloads = &self.downloads;
-        let card = popup_card(ctx, "downloads", self.dl_open, self.dl_pos, 230.0, true, |ui| {
+        let card = popup_card(ctx, "downloads", self.dl_open, self.dl_pos, self.bcfg.sidebar_w as f32 - 20.0, true, |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Загрузки").size(15.0).strong().color(TEXT));
@@ -2559,7 +2783,7 @@ impl App {
                     let exists = Path::new(&d.path).exists();
                     Frame::new().fill(Color32::from_rgb(26, 26, 36)).corner_radius(CornerRadius::same(13)).inner_margin(Margin::same(9)).show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.add(egui::Label::new(RichText::new(d.name()).size(14.0).color(LINK)).truncate());
+                        ui.add(egui::Label::new(RichText::new(d.name()).size(14.0).color(link())).truncate());
                         let status = match d.state {
                             store::DL_ACTIVE => "скачивается…".to_string(),
                             store::DL_FAILED => "не удалось скачать".to_string(),
@@ -2800,7 +3024,7 @@ impl App {
         let now = store::now_secs();
         for d in self.downloads.iter().rev().take(100) {
             card(ui, |ui| {
-                ui.label(RichText::new(d.name()).size(16.0).color(LINK));
+                ui.label(RichText::new(d.name()).size(16.0).color(link()));
                 let exists = Path::new(&d.path).exists();
                 let status = match d.state {
                     store::DL_ACTIVE => "скачивается…".to_string(),
@@ -2870,7 +3094,7 @@ impl App {
                 ui.painter().rect_filled(rect, CornerRadius::same(10), CARD_BG);
             }
             let clip = ui.painter().with_clip_rect(rect.shrink2(Vec2::new(8.0, 0.0)));
-            clip.text(rect.left_top() + Vec2::new(10.0, 8.0), Align2::LEFT_TOP, title, FontId::proportional(15.0), LINK);
+            clip.text(rect.left_top() + Vec2::new(10.0, 8.0), Align2::LEFT_TOP, title, FontId::proportional(15.0), link());
             clip.text(
                 rect.left_top() + Vec2::new(10.0, 28.0),
                 Align2::LEFT_TOP,
@@ -2903,6 +3127,7 @@ impl App {
             || c.webrtc_safe != f.webrtc_safe
             || c.dark_sites != f.dark_sites
             || c.privacy_signals != f.privacy_signals
+            || c.extensions != f.extensions
     }
 
     fn settings_ui(&mut self, ui: &mut egui::Ui) {
@@ -2912,6 +3137,103 @@ impl App {
                 ui.label(RichText::new("Часть изменений вступит в силу после перезапуска Petal: закройте и откройте программу.").color(YELLOW));
             });
         }
+
+        card(ui, |ui| {
+            section(ui, "Оформление");
+            ui.label(RichText::new("Цветовая тема").color(MUTED));
+            ui.add_space(6.0);
+            let mut picked: Option<String> = None;
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(10.0);
+                let mut swatch = |ui: &mut egui::Ui, id: &str, a: u32, b: u32, mark: &str| {
+                    let (r, resp) = ui.allocate_exact_size(Vec2::splat(46.0), Sense::click());
+                    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+                    let t = hover_t(ui, &resp);
+                    let sel = ui.ctx().abt(resp.id.with("sel"), self.bcfg.theme == id, 0.22);
+                    let p = ui.painter();
+                    p.circle_filled(r.center() + Vec2::new(0.0, 3.0), 23.0 + 2.0 * t, alpha(rgb(a), (30.0 + 50.0 * t) as u8));
+                    grad_rrect(p, r.expand(1.5 * t), 23.0, rgb(a), rgb(b), false);
+                    if !mark.is_empty() {
+                        p.text(r.center(), Align2::CENTER_CENTER, mark, FontId::proportional(20.0), Color32::from_rgba_unmultiplied(255, 255, 255, 220));
+                    }
+                    if sel > 0.01 {
+                        p.circle_stroke(r.center(), 27.0, Stroke::new(2.0_f32, alpha(Color32::WHITE, (230.0 * sel) as u8)));
+                        p.circle_filled(r.center(), 5.0 * sel, Color32::WHITE);
+                    }
+                    if resp.clicked() {
+                        picked = Some(id.to_string());
+                    }
+                };
+                for (id, _, a, b) in store::THEMES.iter() {
+                    swatch(ui, id, *a, *b, "");
+                }
+                let (ca, cb) = if self.bcfg.theme == "custom" { (self.bcfg.accent_a, self.bcfg.accent_b) } else { (0x3A3A46, 0x56566A) };
+                swatch(ui, "custom", ca, cb, if self.bcfg.theme == "custom" { "" } else { "+" });
+            });
+            if let Some(id) = picked {
+                if id == "custom" && self.bcfg.theme != "custom" {
+                    let (a, b) = store::theme_colors(&self.bcfg);
+                    self.bcfg.accent_a = a;
+                    self.bcfg.accent_b = b;
+                }
+                self.bcfg.theme = id;
+            }
+            let name = if self.bcfg.theme == "custom" { "Своя тема" } else { store::THEMES.iter().find(|t| t.0 == self.bcfg.theme).map(|t| t.1).unwrap_or("") };
+            ui.add_space(4.0);
+            ui.label(RichText::new(name).size(14.0).color(TEXT));
+            if self.bcfg.theme == "custom" {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    for (label, v) in [("Цвет 1", &mut self.bcfg.accent_a), ("Цвет 2", &mut self.bcfg.accent_b)] {
+                        ui.label(RichText::new(label).color(MUTED));
+                        let mut c = [(*v >> 16) as u8, (*v >> 8) as u8, *v as u8];
+                        if egui::color_picker::color_edit_button_srgb(ui, &mut c).changed() {
+                            *v = ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | c[2] as u32;
+                        }
+                        ui.add_space(10.0);
+                    }
+                });
+            }
+            // Полоска-пример: так выглядят акценты (кнопки, подсветка, вкладки).
+            ui.add_space(8.0);
+            let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 10.0), Sense::hover());
+            grad_rrect(ui.painter(), r, 5.0, accent_a(), accent_b(), false);
+            ui.add_space(12.0);
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Размер интерфейса").color(MUTED));
+                ui.add(egui::Slider::new(&mut self.bcfg.ui_scale, 80..=140).suffix("%").step_by(5.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Ширина левой панели").color(MUTED));
+                ui.add(egui::Slider::new(&mut self.bcfg.sidebar_w, 220..=340).suffix(" px").step_by(10.0));
+            });
+            ui.add_space(4.0);
+            ui.checkbox(&mut self.bcfg.anim, "Анимации (интерфейс и новая вкладка)");
+            ui.checkbox(&mut self.bcfg.glow, "Светящиеся пятна за левой панелью");
+            ui.checkbox(&mut self.bcfg.compact_tabs, "Компактные вкладки");
+            ui.add_space(8.0);
+            let walls: Vec<(&str, &str)> = store::WALLPAPERS.to_vec();
+            combo(ui, "wall", "Фон новой вкладки", &walls, &mut self.bcfg.wallpaper);
+            if self.bcfg.wallpaper == "image" {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if pill_button(ui, "Выбрать картинку…").clicked() {
+                        if let Some(f) = rfd::FileDialog::new().add_filter("Картинки", &["png", "jpg", "jpeg"]).pick_file() {
+                            self.bcfg.wallpaper_img = f.display().to_string();
+                        }
+                    }
+                    let shown = Path::new(&self.bcfg.wallpaper_img).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "не выбрана".to_string());
+                    ui.label(RichText::new(shown).size(13.0).color(MUTED));
+                });
+                note(ui, "PNG или JPG до 6 МБ. Картинка копируется в страницу, исходный файл можно потом переместить.");
+            }
+            ui.add_space(8.0);
+            ui.checkbox(&mut self.bcfg.clock, "Часы и приветствие на новой вкладке");
+            ui.add_space(4.0);
+            ui.label(RichText::new("Ваше имя для приветствия").color(MUTED));
+            ui.add(egui::TextEdit::singleline(&mut self.bcfg.user_name).hint_text("Необязательно").desired_width(260.0));
+        });
 
         card(ui, |ui| {
             section(ui, "Основные");
@@ -2955,6 +3277,58 @@ impl App {
             }
             ui.add_space(6.0);
             combo(ui, "lang", "Язык сайтов", &[("", "Как в Windows"), ("ru", "Русский"), ("en", "English")], &mut self.bcfg.lang);
+        });
+
+        card(ui, |ui| {
+            section(ui, "Расширения Chrome");
+            ui.checkbox(&mut self.bcfg.extensions, "Включить расширения");
+            note(ui, "Работают расширения, которые не требуют входа в аккаунт Google. Кнопок расширений на панели нет: они действуют прямо на страницах (блокировщики рекламы, тёмные темы, переводчики). Часть расширений может работать не полностью.");
+            ui.add_space(8.0);
+            ui.label(RichText::new("Ссылка на расширение в Chrome Web Store или его идентификатор").color(MUTED));
+            ui.add(egui::TextEdit::singleline(&mut self.ext_input).hint_text("https://chromewebstore.google.com/detail/…").desired_width(f32::INFINITY));
+            ui.horizontal(|ui| {
+                let busy = self.ext_rx.is_some();
+                if pill_button(ui, if busy { "Скачиваю…" } else { "Установить" }).clicked() && !busy {
+                    match store::ext_id_from(&self.ext_input) {
+                        Some(id) => {
+                            let (tx, rx) = mpsc::channel();
+                            self.ext_rx = Some(rx);
+                            self.ext_status = "Скачиваю расширение…".to_string();
+                            std::thread::spawn(move || {
+                                let _ = tx.send(install_extension(&id));
+                            });
+                            self.ext_input.clear();
+                            self.bcfg.extensions = true;
+                        }
+                        None => self.ext_status = "В ссылке не нашёлся идентификатор расширения (32 буквы). Скопируйте адрес страницы расширения целиком.".to_string(),
+                    }
+                }
+                if pill_button(ui, "Открыть Chrome Web Store").clicked() {
+                    self.open_tab("https://chromewebstore.google.com/");
+                }
+            });
+            if !self.ext_status.is_empty() {
+                ui.add_space(4.0);
+                ui.label(RichText::new(&self.ext_status).size(13.0).color(GREEN));
+            }
+            if !self.ext_list.is_empty() {
+                ui.add_space(8.0);
+                ui.label(RichText::new("Установлено").color(MUTED));
+                let mut remove: Option<String> = None;
+                for (dir, name) in &self.ext_list {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(name).color(TEXT));
+                        if chip(ui, "Удалить").clicked() {
+                            remove = Some(dir.clone());
+                        }
+                    });
+                }
+                if let Some(d) = remove {
+                    let _ = std::fs::remove_dir_all(extensions_dir().join(&d));
+                    self.ext_list = list_extensions();
+                    self.ext_status = "Расширение удалено. Изменение вступит в силу после перезапуска.".to_string();
+                }
+            }
         });
 
         card(ui, |ui| {
@@ -3205,7 +3579,7 @@ impl App {
         let mut delete: Option<usize> = None;
         for (i, e) in self.vault.entries.iter().enumerate() {
             card(ui, |ui| {
-                ui.label(RichText::new(&e.site).size(16.0).color(LINK));
+                ui.label(RichText::new(&e.site).size(16.0).color(link()));
                 ui.label(RichText::new(if e.login.is_empty() { "(без логина)" } else { &e.login }).color(MUTED));
                 let shown = self.vault.shown.contains(&i);
                 ui.label(RichText::new(if shown { e.password.clone() } else { "••••••••••".to_string() }).monospace().color(TEXT));
@@ -3322,7 +3696,7 @@ impl App {
         let mut refresh = false;
 
         card(ui, |ui| {
-            ui.label(RichText::new("Звук в микрофон").size(13.0).color(LINK));
+            ui.label(RichText::new("Звук в микрофон").size(13.0).color(link()));
             ui.checkbox(&mut self.cfg.mic_on, "Играть звуки в микрофон (Discord, игры, звонки)");
             if !have_cable {
                 ui.label(
@@ -3831,7 +4205,7 @@ impl App {
         if let Some((rel, mut text, first)) = self.rename.take() {
             let (mut save, mut cancel) = (false, false);
             card(ui, |ui| {
-                ui.label(RichText::new("Новое название звука").size(13.0).color(LINK));
+                ui.label(RichText::new("Новое название звука").size(13.0).color(link()));
                 ui.horizontal(|ui| {
                     let resp = ui.add(egui::TextEdit::singleline(&mut text).desired_width(300.0));
                     if first {
@@ -3962,12 +4336,12 @@ impl App {
                     );
                     painter.rect_filled(track, CornerRadius::same(2), Color32::from_rgb(31, 31, 31));
                     let done = egui::Rect::from_min_size(track.min, Vec2::new(track.width() * frac, track.height()));
-                    painter.rect_filled(done, CornerRadius::same(2), LINK);
+                    painter.rect_filled(done, CornerRadius::same(2), link());
                     // Значок «играет»: маленький треугольник.
                     let o = egui::pos2(rect.right() - 20.0, rect.top() + 10.0);
                     painter.add(egui::Shape::convex_polygon(
                         vec![o, o + Vec2::new(0.0, 12.0), o + Vec2::new(10.0, 6.0)],
-                        LINK,
+                        link(),
                         Stroke::NONE,
                     ));
                 }
@@ -4074,7 +4448,7 @@ impl App {
                     draw_coin(ui, self.rnd_coin == 1, 110.0 * scale.max(0.05), 130.0);
                 } else if !self.rnd_result.is_empty() {
                     ui.add_space(14.0);
-                    ui.label(RichText::new(&self.rnd_result).size((54.0 * scale).max(8.0)).strong().color(LINK));
+                    ui.label(RichText::new(&self.rnd_result).size((54.0 * scale).max(8.0)).strong().color(link()));
                     ui.add_space(14.0);
                 } else {
                     ui.add_space(30.0);
@@ -4161,7 +4535,7 @@ impl App {
                     spin_clicked = true;
                 }
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Варианты, по одному в строке").size(13.0).color(LINK));
+                    ui.label(RichText::new("Варианты, по одному в строке").size(13.0).color(link()));
                     let resp = ui.add_enabled(
                         !spinning,
                         egui::TextEdit::multiline(&mut self.wheel_text)
@@ -4205,7 +4579,7 @@ impl App {
 
         if !self.wheel_result.is_empty() && !spinning {
             card(ui, |ui| {
-                ui.label(RichText::new("Выпало").size(13.0).color(LINK));
+                ui.label(RichText::new("Выпало").size(13.0).color(link()));
                 ui.label(RichText::new(&self.wheel_result).size(34.0).color(TEXT));
                 if self.wheel_history.len() > 1 {
                     ui.label(
@@ -4295,7 +4669,7 @@ impl App {
         if !self.calc_history.is_empty() {
             card(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("История").size(13.0).color(LINK));
+                    ui.label(RichText::new("История").size(13.0).color(link()));
                     if pill_button(ui, "Очистить").clicked() {
                         self.calc_history.clear();
                     }
@@ -4311,9 +4685,32 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         sync_live(&self.bcfg);
-        if self.bcfg.search != self.applied_search {
-            write_pages(&self.bcfg.search);
-            self.applied_search = self.bcfg.search.clone();
+        if let Some(rx) = &self.ext_rx {
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.ext_status = match r {
+                        Ok(name) => format!("Установлено: {name}. Перезапустите Petal, чтобы расширение заработало."),
+                        Err(e) => e,
+                    };
+                    self.ext_rx = None;
+                    self.ext_list = list_extensions();
+                }
+                Err(mpsc::TryRecvError::Empty) => ctx.request_repaint_after(Duration::from_millis(250)),
+                Err(_) => self.ext_rx = None,
+            }
+        }
+        let key = pages_key(&self.bcfg);
+        if key != self.applied_search {
+            write_pages(&self.bcfg);
+            self.applied_search = key;
+        }
+        let (ca, cb) = store::theme_colors(&self.bcfg);
+        ACC_A.store(ca, Ordering::Relaxed);
+        ACC_B.store(cb, Ordering::Relaxed);
+        ANIM_ON.store(self.bcfg.anim, Ordering::Relaxed);
+        if self.applied_scale != self.bcfg.ui_scale {
+            ctx.set_zoom_factor(self.bcfg.ui_scale as f32 / 100.0);
+            self.applied_scale = self.bcfg.ui_scale;
         }
         if self.bcfg.zoom != self.applied_zoom {
             for t in &self.tabs {
@@ -4347,7 +4744,8 @@ impl eframe::App for App {
                 t.park();
             }
         }
-        egui::CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx, |ui| {
+        let page_fill = page_bg(&self.tabs[active].current_url(), self.tabs[active].incognito);
+        egui::CentralPanel::default().frame(Frame::new().fill(page_fill)).show(ctx, |ui| {
             let rect = ui.available_rect_before_wrap();
             ui.allocate_rect(rect, Sense::hover());
             self.tabs[active].show(frame, ui, rect);

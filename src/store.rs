@@ -103,6 +103,31 @@ pub struct BrowserCfg {
     pub lang: String,
     /// Тёмная тема для сайтов, которые её поддерживают.
     pub dark_sites: bool,
+    /// Цветовая тема оформления: id из THEMES или custom.
+    pub theme: String,
+    /// Свои цвета (0xRRGGBB), если выбрана тема custom.
+    pub accent_a: u32,
+    pub accent_b: u32,
+    /// Масштаб интерфейса в процентах.
+    pub ui_scale: u32,
+    /// Ширина левой панели.
+    pub sidebar_w: u32,
+    /// Анимации интерфейса и страницы.
+    pub anim: bool,
+    /// Мягкое светящееся пятно за левой панелью.
+    pub glow: bool,
+    /// Компактные вкладки.
+    pub compact_tabs: bool,
+    /// Фон новой вкладки: aurora, gradient, stars, waves, plain, image.
+    pub wallpaper: String,
+    /// Своя картинка для фона новой вкладки.
+    pub wallpaper_img: String,
+    /// Часы и приветствие на новой вкладке.
+    pub clock: bool,
+    /// Имя для приветствия.
+    pub user_name: String,
+    /// Разрешить расширения Chrome (распакованные, из папки extensions).
+    pub extensions: bool,
 }
 
 impl Default for BrowserCfg {
@@ -125,6 +150,19 @@ impl Default for BrowserCfg {
             dl_dir: String::new(),
             lang: String::new(),
             dark_sites: true,
+            theme: "petal".to_string(),
+            accent_a: 0xEC4899,
+            accent_b: 0x7C5CFF,
+            ui_scale: 100,
+            sidebar_w: 250,
+            anim: true,
+            glow: true,
+            compact_tabs: false,
+            wallpaper: "aurora".to_string(),
+            wallpaper_img: String::new(),
+            clock: true,
+            user_name: String::new(),
+            extensions: false,
         }
     }
 }
@@ -145,6 +183,34 @@ pub const DOH_SERVERS: [(&str, &str, &str); 7] = [
     ("yandex", "Яндекс DNS", "https://common.dns.yandex.net/dns-query"),
     ("comss", "Comss.one DNS", "https://dns.comss.one/dns-query"),
 ];
+
+/// Готовые цветовые темы: (id, название, цвет A, цвет B).
+pub const THEMES: [(&str, &str, u32, u32); 7] = [
+    ("petal", "Лепесток", 0xEC4899, 0x7C5CFF),
+    ("ocean", "Океан", 0x22D3EE, 0x3B82F6),
+    ("forest", "Лес", 0x4ADE80, 0x06B6D4),
+    ("sunset", "Закат", 0xFB923C, 0xEF4444),
+    ("grape", "Виноград", 0xC084FC, 0x6366F1),
+    ("gold", "Золото", 0xFACC15, 0xF97316),
+    ("mono", "Графит", 0xE5E7EB, 0x9CA3AF),
+];
+
+pub const WALLPAPERS: [(&str, &str); 6] = [
+    ("aurora", "Северное сияние"),
+    ("gradient", "Градиент"),
+    ("stars", "Звёздное небо"),
+    ("waves", "Волны"),
+    ("plain", "Однотонный"),
+    ("image", "Своя картинка"),
+];
+
+/// Два акцентных цвета текущей темы.
+pub fn theme_colors(c: &BrowserCfg) -> (u32, u32) {
+    if c.theme == "custom" {
+        return (c.accent_a & 0xFFFFFF, c.accent_b & 0xFFFFFF);
+    }
+    THEMES.iter().find(|t| t.0 == c.theme).map(|t| (t.2, t.3)).unwrap_or((THEMES[0].2, THEMES[0].3))
+}
 
 pub fn search_prefix(id: &str) -> &'static str {
     SEARCH_ENGINES.iter().find(|e| e.0 == id).map(|e| e.2).unwrap_or(SEARCH_ENGINES[0].2)
@@ -223,7 +289,7 @@ pub fn user_agent(id: &str) -> &'static str {
 pub fn cfg_to_text(c: &BrowserCfg) -> String {
     let one = |b: bool| b as u8;
     format!(
-        "restore={}\nsave_history={}\nhome={}\nsearch={}\ndoh={}\ndoh_custom={}\nproxy={}\nzoom={}\nblock_popups={}\nprivacy_signals={}\nclear_on_exit={}\nua={}\nno_gpu={}\nwebrtc_safe={}\ndl_dir={}\nlang={}\ndark_sites={}\n",
+        "restore={}\nsave_history={}\nhome={}\nsearch={}\ndoh={}\ndoh_custom={}\nproxy={}\nzoom={}\nblock_popups={}\nprivacy_signals={}\nclear_on_exit={}\nua={}\nno_gpu={}\nwebrtc_safe={}\ndl_dir={}\nlang={}\ndark_sites={}\ntheme={}\naccent_a={:06x}\naccent_b={:06x}\nui_scale={}\nsidebar_w={}\nanim={}\nglow={}\ncompact_tabs={}\nwallpaper={}\nwallpaper_img={}\nclock={}\nuser_name={}\nextensions={}\n",
         one(c.restore),
         one(c.save_history),
         c.home,
@@ -241,7 +307,41 @@ pub fn cfg_to_text(c: &BrowserCfg) -> String {
         c.dl_dir,
         c.lang,
         one(c.dark_sites),
+        c.theme,
+        c.accent_a & 0xFFFFFF,
+        c.accent_b & 0xFFFFFF,
+        c.ui_scale,
+        c.sidebar_w,
+        one(c.anim),
+        one(c.glow),
+        one(c.compact_tabs),
+        c.wallpaper,
+        c.wallpaper_img,
+        one(c.clock),
+        c.user_name,
+        one(c.extensions),
     )
+}
+
+/// Идентификатор расширения (32 буквы a–p) из ссылки Chrome Web Store или из самого идентификатора.
+pub fn ext_id_from(s: &str) -> Option<String> {
+    let clean = |t: &str| t.len() == 32 && t.bytes().all(|b| (b'a'..=b'p').contains(&b));
+    let path = s.trim().split(['?', '#']).next().unwrap_or("");
+    path.split('/').rev().find(|seg| clean(seg)).map(|t| t.to_string())
+}
+
+/// Где в файле .crx начинается обычный zip-архив (форматы CRX2 и CRX3).
+pub fn crx_zip_offset(d: &[u8]) -> Option<usize> {
+    if d.len() < 16 || &d[0..4] != b"Cr24" {
+        return None;
+    }
+    let u = |i: usize| u32::from_le_bytes([d[i], d[i + 1], d[i + 2], d[i + 3]]) as usize;
+    let off = match u(4) {
+        3 => 12usize.checked_add(u(8))?,
+        2 => 16usize.checked_add(u(8))?.checked_add(u(12))?,
+        _ => return None,
+    };
+    (off < d.len()).then_some(off)
 }
 
 pub fn cfg_from_text(s: &str) -> BrowserCfg {
@@ -268,6 +368,19 @@ pub fn cfg_from_text(s: &str) -> BrowserCfg {
             "dl_dir" => c.dl_dir = v.to_string(),
             "lang" if matches!(v, "" | "ru" | "en") => c.lang = v.to_string(),
             "dark_sites" => c.dark_sites = on,
+            "theme" if v == "custom" || THEMES.iter().any(|t| t.0 == v) => c.theme = v.to_string(),
+            "accent_a" => c.accent_a = u32::from_str_radix(v, 16).unwrap_or(c.accent_a) & 0xFFFFFF,
+            "accent_b" => c.accent_b = u32::from_str_radix(v, 16).unwrap_or(c.accent_b) & 0xFFFFFF,
+            "ui_scale" => c.ui_scale = v.parse::<u32>().unwrap_or(100).clamp(80, 140),
+            "sidebar_w" => c.sidebar_w = v.parse::<u32>().unwrap_or(250).clamp(220, 340),
+            "anim" => c.anim = on,
+            "glow" => c.glow = on,
+            "compact_tabs" => c.compact_tabs = on,
+            "wallpaper" if WALLPAPERS.iter().any(|w| w.0 == v) => c.wallpaper = v.to_string(),
+            "wallpaper_img" => c.wallpaper_img = v.to_string(),
+            "clock" => c.clock = on,
+            "user_name" => c.user_name = v.chars().take(30).collect(),
+            "extensions" => c.extensions = on,
             _ => {}
         }
     }
@@ -635,6 +748,16 @@ mod tests {
             dl_dir: "D:\\Загрузки".into(),
             lang: "en".into(),
             dark_sites: false,
+            theme: "custom".into(),
+            accent_a: 0x112233,
+            accent_b: 0xAABBCC,
+            ui_scale: 120,
+            sidebar_w: 300,
+            anim: false,
+            glow: false,
+            compact_tabs: true,
+            wallpaper: "stars".into(),
+            user_name: "Аня".into(),
             ..BrowserCfg::default()
         };
         assert_eq!(cfg_from_text(&cfg_to_text(&c)), c);
@@ -665,9 +788,27 @@ mod tests {
     }
 
     #[test]
+    fn extension_helpers() {
+        let id = "cjpalhdlnbpafiamejdnhcphjbkeiagm";
+        assert_eq!(ext_id_from(id).as_deref(), Some(id));
+        assert_eq!(ext_id_from(&format!("https://chromewebstore.google.com/detail/ublock-origin/{id}?hl=ru")).as_deref(), Some(id));
+        assert_eq!(ext_id_from("https://example.com/abc"), None);
+        assert_eq!(ext_id_from("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"), None);
+        let mut crx3 = b"Cr24".to_vec();
+        crx3.extend_from_slice(&3u32.to_le_bytes());
+        crx3.extend_from_slice(&5u32.to_le_bytes());
+        crx3.extend_from_slice(&[0; 5]);
+        crx3.extend_from_slice(b"PK\x03\x04");
+        assert_eq!(crx_zip_offset(&crx3), Some(17));
+        assert_eq!(crx_zip_offset(b"not a crx at all.."), None);
+        assert_eq!(crx_zip_offset(b"Cr24\x09\0\0\0xxxxxxxxxxxx"), None);
+    }
+
+    #[test]
     fn cfg_ignores_bad_values() {
-        let c = cfg_from_text("search=нет\nzoom=900\nua=бред\ndoh=x\nlang=de");
-        assert_eq!(c, BrowserCfg { zoom: 200, ..BrowserCfg::default() });
+        let c = cfg_from_text("search=нет\nzoom=900\nua=бред\ndoh=x\nlang=de\ntheme=bad\nui_scale=5\nsidebar_w=9999\nwallpaper=zzz");
+        assert_eq!(c, BrowserCfg { zoom: 200, ui_scale: 80, sidebar_w: 340, ..BrowserCfg::default() });
+        assert_eq!(theme_colors(&BrowserCfg { theme: "ocean".into(), ..BrowserCfg::default() }), (0x22D3EE, 0x3B82F6));
         assert_eq!(search_prefix("bing"), "https://www.bing.com/search?q=");
     }
 
