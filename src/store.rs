@@ -372,7 +372,7 @@ pub fn cfg_from_text(s: &str) -> BrowserCfg {
             "accent_a" => c.accent_a = u32::from_str_radix(v, 16).unwrap_or(c.accent_a) & 0xFFFFFF,
             "accent_b" => c.accent_b = u32::from_str_radix(v, 16).unwrap_or(c.accent_b) & 0xFFFFFF,
             "ui_scale" => c.ui_scale = v.parse::<u32>().unwrap_or(100).clamp(80, 140),
-            "sidebar_w" => c.sidebar_w = v.parse::<u32>().unwrap_or(250).clamp(220, 340),
+            "sidebar_w" => c.sidebar_w = v.parse::<u32>().unwrap_or(250).clamp(240, 340),
             "anim" => c.anim = on,
             "glow" => c.glow = on,
             "compact_tabs" => c.compact_tabs = on,

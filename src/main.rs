@@ -29,6 +29,15 @@ static ACC_A: AtomicU32 = AtomicU32::new(0xEC4899);
 static ACC_B: AtomicU32 = AtomicU32::new(0x7C5CFF);
 static ANIM_ON: AtomicBool = AtomicBool::new(true);
 
+/// Случайное число от 0 до n (не включая n).
+fn rand_below(n: u32) -> u32 {
+    let mut b = [0u8; 4];
+    if getrandom::getrandom(&mut b).is_err() {
+        return 1;
+    }
+    u32::from_le_bytes(b) % n.max(1)
+}
+
 fn rgb(n: u32) -> Color32 {
     Color32::from_rgb((n >> 16) as u8, (n >> 8) as u8, n as u8)
 }
@@ -673,7 +682,7 @@ body.wp-waves .waves{display:block}
 .clk .gr{margin-top:8px;font-size:18px;color:#c9c9d3}
 .clk .dt{font-size:14px;color:#8d8d98;margin-top:4px;text-transform:capitalize}
 body.noanim *,body.noanim::before,body.noanim::after{animation:none!important;transition:none!important}
-</style></head><body class="wp-@@WP@@ @@NOANIM@@"><canvas class="sky" id="sky"></canvas><div class="waves"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 50 Q150 10 300 50 T600 50 T900 50 T1200 50 V100 H0Z" fill="var(--a)" fill-opacity=".16"/></svg><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 60 Q150 25 300 60 T600 60 T900 60 T1200 60 V100 H0Z" fill="var(--b)" fill-opacity=".22"/></svg></div><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span>Petal</span></div>
+</style></head><body class="wp-@@WP@@ @@NOANIM@@"><canvas class="sky" id="sky"></canvas><div class="waves"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 50 Q150 10 300 50 T600 50 T900 50 T1200 50 V100 H0Z" fill="var(--a)" fill-opacity=".16"/></svg><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 60 Q150 25 300 60 T600 60 T900 60 T1200 60 V100 H0Z" fill="var(--b)" fill-opacity=".22"/></svg></div><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span id="nm">Petal</span></div>
 <div class="clk"><div class="tm" id="tm"></div><div class="gr" id="gr"></div><div class="dt" id="dt"></div></div>
 <form id="f"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9a9aa3" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
 <input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в @@ENGINE@@ или введите адрес"></form>
@@ -701,6 +710,7 @@ M.addEventListener('mousedown',function(e){if(e.target===M)closeM();});
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeM();});
 document.getElementById('mf').addEventListener('submit',function(e){e.preventDefault();var u=document.getElementById('mu').value.trim(),n=document.getElementById('mn').value.trim();if(!u)return;if(!/^https?:\/\//i.test(u))u='https://'+u;B.push({n:n||host(u).replace(/^www\./,''),u:u});save(B);draw();closeM();});
 draw();
+if(Math.random()<0.0001)document.getElementById('nm').textContent='Vpital';
 (function(){var NAME='@@NAME@@';function z(n){return (n<10?'0':'')+n;}
 function tick(){var d=new Date(),h=d.getHours(),g=h<5?'Доброй ночи':h<12?'Доброе утро':h<18?'Добрый день':'Добрый вечер';
 document.getElementById('tm').textContent=z(h)+':'+z(d.getMinutes());document.getElementById('gr').textContent=g+(NAME?', '+NAME:'');
@@ -1532,12 +1542,25 @@ fn hover_t(ui: &egui::Ui, resp: &egui::Response) -> f32 {
     ui.ctx().abt(resp.id.with("hov"), resp.hovered(), 0.15)
 }
 
+/// Стеклянная кнопка-кружок: полупрозрачная заливка, тонкая рамка; при наведении светлеет и обводится цветом темы.
+fn glass_base(p: &egui::Painter, rect: egui::Rect, radius: f32, t: f32, o: f32) {
+    let r = CornerRadius::same(radius as u8);
+    let glow = t.max(o);
+    p.rect_filled(rect.translate(Vec2::new(0.0, 2.0)).shrink(2.0), r, alpha(accent_b(), (26.0 * glow) as u8));
+    p.rect_filled(rect, r, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 10), Color32::from_rgba_unmultiplied(255, 255, 255, 26), t));
+    if o > 0.01 {
+        grad_rrect(p, rect, radius, alpha(accent_a(), (70.0 * o) as u8), alpha(accent_b(), (80.0 * o) as u8), false);
+    }
+    p.rect_stroke(rect, r, Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 20), alpha(link(), 190), glow)), egui::StrokeKind::Inside);
+}
+
 fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
     let resp = if enabled { resp.on_hover_cursor(CursorIcon::PointingHand) } else { resp };
     let t = if enabled { hover_t(ui, &resp) } else { 0.0 };
-    let fill = mix(FIELD_BG, Color32::from_rgb(72, 74, 82), t);
-    let color = if enabled { mix(Color32::from_rgb(205, 208, 214), Color32::WHITE, t) } else { Color32::from_gray(90) };
+    let pressed = enabled && resp.is_pointer_button_down_on();
+    let rect = if pressed { rect.shrink(1.5) } else { rect };
+    let color = if enabled { mix(Color32::from_rgb(190, 192, 206), Color32::WHITE, t) } else { Color32::from_rgba_unmultiplied(255, 255, 255, 44) };
     // Стрелка «обновить» делает оборот при каждом нажатии.
     let rot = if matches!(icon, NavIcon::Reload) {
         let id = egui::Id::new("reload_turns");
@@ -1551,20 +1574,24 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
         0.0
     };
     let p = ui.painter();
-    p.circle_filled(rect.center(), 17.0, fill);
+    if enabled {
+        glass_base(p, rect, 18.0, t, 0.0);
+    } else {
+        p.rect_stroke(rect, CornerRadius::same(18), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 10)), egui::StrokeKind::Inside);
+    }
     let c = rect.center();
-    let st = Stroke::new(2.0_f32, color);
+    let st = Stroke::new(1.9_f32, color);
     match icon {
         NavIcon::Back | NavIcon::Forward => {
             let d = if matches!(icon, NavIcon::Back) { -1.0 } else { 1.0 };
             // При наведении стрелка чуть сдвигается в свою сторону.
             let c = c + Vec2::new(1.5 * d * t, 0.0);
-            p.line_segment([c + Vec2::new(-6.0 * d, 0.0), c + Vec2::new(6.0 * d, 0.0)], st);
-            p.line_segment([c + Vec2::new(6.0 * d, 0.0), c + Vec2::new(1.0 * d, -5.0)], st);
-            p.line_segment([c + Vec2::new(6.0 * d, 0.0), c + Vec2::new(1.0 * d, 5.0)], st);
+            p.line_segment([c + Vec2::new(-5.5 * d, 0.0), c + Vec2::new(5.5 * d, 0.0)], st);
+            p.line_segment([c + Vec2::new(5.5 * d, 0.0), c + Vec2::new(1.0 * d, -4.6)], st);
+            p.line_segment([c + Vec2::new(5.5 * d, 0.0), c + Vec2::new(1.0 * d, 4.6)], st);
         }
         NavIcon::Reload => {
-            let r = 7.0_f32;
+            let r = 6.6_f32;
             let (a0, a1) = (-1.2_f32 + rot, -1.2_f32 + rot + std::f32::consts::TAU * 0.78);
             let pts: Vec<egui::Pos2> = (0..=24)
                 .map(|i| {
@@ -1579,44 +1606,73 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
             for rot in [0.6_f32, -0.6] {
                 let (sn, cs) = rot.sin_cos();
                 let d = Vec2::new(back.x * cs - back.y * sn, back.x * sn + back.y * cs);
-                p.line_segment([end, end + d * 5.5], st);
+                p.line_segment([end, end + d * 5.0], st);
             }
         }
     }
     resp
 }
 
-/// Кнопка «Загрузки» внизу колонки вкладок: стрелка вниз над лотком и счётчик активных загрузок.
+/// Спокойная «стеклянная» строка внизу панели: цвет появляется только при наведении, открытом меню и активной загрузке.
 fn downloads_button(ui: &mut egui::Ui, active: usize, open: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 42.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let o = ui.ctx().abt(resp.id.with("open"), open, 0.25);
-    let dark = Color32::from_rgb(10, 44, 40);
     let time = ui.input(|i| i.time) as f32;
+    let busy = active > 0;
     let p = ui.painter();
-    let lift = rect.translate(Vec2::new(0.0, -1.5 * t));
-    p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), Color32::from_rgba_unmultiplied(52, 211, 153, (26.0 + 50.0 * t + 40.0 * o) as u8));
-    grad_rrect(p, lift, 14.0, mix(Color32::from_rgb(74, 222, 128), Color32::from_rgb(134, 239, 172), t), mix(Color32::from_rgb(34, 190, 190), Color32::from_rgb(80, 220, 220), t), false);
-    if active > 0 {
-        // Пока что-то качается, стрелка «падает» в лоток, а кнопка мягко пульсирует.
-        let pulse = 0.5 + 0.5 * (time * 4.0).sin();
-        p.rect_stroke(lift, CornerRadius::same(14), Stroke::new(2.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (40.0 + 120.0 * pulse) as u8)), egui::StrokeKind::Inside);
+    let lit_up = t.max(o);
+    p.rect_filled(rect, CornerRadius::same(13), Color32::from_rgba_unmultiplied(255, 255, 255, (9.0 + 14.0 * lit_up) as u8));
+    p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 18), alpha(accent_b(), 150), lit_up)), egui::StrokeKind::Inside);
+    let bob = if busy { ((time * 5.0).sin() * 0.5 + 0.5) * 3.5 } else { 1.5 * t };
+    let ink = mix(MUTED, mix(TEXT, link(), o), lit_up.max(if busy { 1.0 } else { 0.0 }));
+    let c = rect.left_center() + Vec2::new(24.0, -1.0);
+    let st = Stroke::new(1.9_f32, ink);
+    p.line_segment([c + Vec2::new(0.0, -7.0 + bob), c + Vec2::new(0.0, 3.0 + bob)], st);
+    p.line_segment([c + Vec2::new(-4.5, -1.5 + bob), c + Vec2::new(0.0, 3.5 + bob)], st);
+    p.line_segment([c + Vec2::new(4.5, -1.5 + bob), c + Vec2::new(0.0, 3.5 + bob)], st);
+    p.line_segment([c + Vec2::new(-7.5, 7.5), c + Vec2::new(7.5, 7.5)], st);
+    p.line_segment([c + Vec2::new(-7.5, 3.0), c + Vec2::new(-7.5, 7.5)], st);
+    p.line_segment([c + Vec2::new(7.5, 3.0), c + Vec2::new(7.5, 7.5)], st);
+    p.text(rect.left_center() + Vec2::new(46.0, 0.0), Align2::LEFT_CENTER, "Загрузки", FontId::proportional(14.5), mix(Color32::from_rgb(190, 192, 204), TEXT, lit_up));
+    if busy {
+        // Счётчик активных загрузок и бегущая полоска по нижней кромке.
+        let b = rect.right_center() - Vec2::new(22.0, 0.0);
+        grad_rrect(p, egui::Rect::from_center_size(b, Vec2::splat(22.0)), 11.0, accent_a(), accent_b(), false);
+        p.text(b, Align2::CENTER_CENTER, active.to_string(), FontId::proportional(12.5), Color32::WHITE);
+        let w = rect.width();
+        let x = rect.left() + ((time * 0.7) % 1.0) * (w + 60.0) - 60.0;
+        let seg = egui::Rect::from_min_max(egui::pos2(x.max(rect.left() + 8.0), rect.bottom() - 3.0), egui::pos2((x + 60.0).min(rect.right() - 8.0), rect.bottom() - 1.0));
+        if seg.width() > 1.0 {
+            grad_rrect(p, seg, 1.0, alpha(accent_a(), 0), accent_b(), false);
+        }
         ui.ctx().request_repaint();
-    } else {
-        p.rect_stroke(lift, CornerRadius::same(14), Stroke::new(1.5_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (20.0 + 160.0 * o) as u8)), egui::StrokeKind::Inside);
     }
-    let bob = if active > 0 { ((time * 5.0).sin() * 0.5 + 0.5) * 4.0 } else { 2.0 * t };
-    let c = lift.left_center() + Vec2::new(26.0, -1.0);
-    let st = Stroke::new(2.3_f32, dark);
-    p.line_segment([c + Vec2::new(0.0, -8.0 + bob), c + Vec2::new(0.0, 3.0 + bob)], st);
-    p.line_segment([c + Vec2::new(-5.0, -2.0 + bob), c + Vec2::new(0.0, 3.5 + bob)], st);
-    p.line_segment([c + Vec2::new(5.0, -2.0 + bob), c + Vec2::new(0.0, 3.5 + bob)], st);
-    p.line_segment([c + Vec2::new(-8.0, 8.0), c + Vec2::new(8.0, 8.0)], st);
-    p.line_segment([c + Vec2::new(-8.0, 3.0), c + Vec2::new(-8.0, 8.0)], st);
-    p.line_segment([c + Vec2::new(8.0, 3.0), c + Vec2::new(8.0, 8.0)], st);
-    let label = if active > 0 { format!("Загрузки · {active}") } else { "Загрузки".to_string() };
-    p.text(lift.left_center() + Vec2::new(50.0, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(15.5), dark);
+    resp
+}
+
+/// Тонкая «призрачная» строка «Новая вкладка»: цвет появляется при наведении.
+fn new_tab_row(ui: &mut egui::Ui) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 36.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let t = hover_t(ui, &resp);
+    let p = ui.painter();
+    if t > 0.01 {
+        grad_rrect(p, rect, 12.0, alpha(accent_a(), (46.0 * t) as u8), alpha(accent_b(), (46.0 * t) as u8), false);
+    }
+    p.rect_stroke(rect, CornerRadius::same(12), Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 22), alpha(accent_b(), 170), t)), egui::StrokeKind::Inside);
+    let c = rect.left_center() + Vec2::new(22.0, 0.0);
+    let ink = mix(MUTED, Color32::WHITE, t);
+    let st = Stroke::new(1.8_f32, ink);
+    let spin = t * 0.6;
+    let (sn, cs) = spin.sin_cos();
+    for (dx, dy) in [(6.0_f32, 0.0_f32), (0.0, 6.0)] {
+        let (a, b) = (Vec2::new(-dx, -dy), Vec2::new(dx, dy));
+        let rot = |v: Vec2| Vec2::new(v.x * cs - v.y * sn, v.x * sn + v.y * cs);
+        p.line_segment([c + rot(a), c + rot(b)], st);
+    }
+    p.text(rect.left_center() + Vec2::new(42.0, 0.0), Align2::LEFT_CENTER, "Новая вкладка", FontId::proportional(14.5), mix(Color32::from_rgb(190, 192, 204), Color32::WHITE, t));
     resp
 }
 
@@ -1642,23 +1698,24 @@ fn reveal_path(path: &str) {
 
 /// Кнопка меню (настройки, история, пароли): три ползунка, которые при наведении «переезжают».
 fn dots_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(38.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let o = ui.ctx().abt(resp.id.with("open"), open, 0.2);
-    let fill = mix(mix(FIELD_BG, Color32::from_rgb(72, 74, 82), t), link(), o);
-    let ink = mix(mix(Color32::from_rgb(205, 208, 214), Color32::WHITE, t), Color32::from_rgb(24, 30, 48), o);
+    let rect = if resp.is_pointer_button_down_on() { rect.shrink(1.5) } else { rect };
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(12), fill);
+    glass_base(p, rect, 13.0, t, o);
+    let ink = mix(mix(Color32::from_rgb(190, 192, 206), Color32::WHITE, t), Color32::WHITE, o);
     let c = rect.center();
     let st = Stroke::new(1.8_f32, ink);
     let (from, to) = ([-4.0_f32, 4.0, -1.0], [4.0_f32, -4.0, 4.5]);
     let k = (t * 0.7 + o * 0.3).clamp(0.0, 1.0);
-    for (i, dy) in [-8.0_f32, 0.0, 8.0].into_iter().enumerate() {
-        p.line_segment([c + Vec2::new(-9.0, dy), c + Vec2::new(9.0, dy)], st);
+    for (i, dy) in [-7.5_f32, 0.0, 7.5].into_iter().enumerate() {
         let x = from[i] + (to[i] - from[i]) * k;
-        p.circle_filled(c + Vec2::new(x, dy), 2.8, fill);
-        p.circle_stroke(c + Vec2::new(x, dy), 2.8, st);
+        // Линия идёт по обе стороны от кружка, а не под ним.
+        p.line_segment([c + Vec2::new(-9.0, dy), c + Vec2::new(x - 3.8, dy)], st);
+        p.line_segment([c + Vec2::new(x + 3.8, dy), c + Vec2::new(9.0, dy)], st);
+        p.circle_stroke(c + Vec2::new(x, dy), 2.7, st);
     }
     resp
 }
@@ -2204,6 +2261,7 @@ struct App {
     applied_zoom: u32,
     applied_search: String,
     applied_scale: u32,
+    brand: &'static str,
     ext_input: String,
     ext_status: String,
     ext_list: Vec<(String, String)>,
@@ -2306,6 +2364,7 @@ impl App {
             applied_zoom: 100,
             applied_search: String::new(),
             applied_scale: 0,
+            brand: if rand_below(10_000) == 0 { "Vpital" } else { "Petal" },
             ext_input: String::new(),
             ext_status: String::new(),
             ext_list: list_extensions(),
@@ -2446,7 +2505,7 @@ impl App {
         let nav = self.tabs[self.active].nav.load(Ordering::Relaxed);
         let mut btns: Vec<egui::Rect> = Vec::new();
         let row = ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.spacing_mut().item_spacing.x = 5.0;
             let tab = &self.tabs[self.active];
             if icon_button(ui, NavIcon::Back, has && nav & 1 != 0).clicked() && nav & 1 != 0 {
                 if let Some(b) = &tab.view {
@@ -2480,17 +2539,17 @@ impl App {
         self.menu_btns = btns;
         ui.add_space(8.0);
         let glow = ui.ctx().abt(egui::Id::new("addr_glow"), self.addr_focused, 0.2);
-        Frame::new()
-            .fill(FIELD_BG)
+        let field = Frame::new()
+            .fill(mix(Color32::from_rgba_unmultiplied(255, 255, 255, 10), Color32::from_rgba_unmultiplied(255, 255, 255, 18), glow))
             .corner_radius(CornerRadius::same(20))
-            .stroke(Stroke::new(1.5_f32, mix(alpha(accent_b(), 0), accent_b(), glow)))
-            .inner_margin(Margin::symmetric(14, 6))
+            .stroke(Stroke::new(1.2_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 22), accent_b(), glow)))
+            .inner_margin(Margin { left: 38, right: 14, top: 7, bottom: 7 })
             .show(ui, |ui| {
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut self.addr)
                     .frame(false)
                     .desired_width(ui.available_width())
-                    .hint_text("Адрес или поиск")
+                    .hint_text(RichText::new("Адрес или поиск").color(Color32::from_rgb(130, 132, 150)))
                     .font(FontId::proportional(15.0)),
             );
             self.addr_focused = resp.has_focus();
@@ -2503,6 +2562,14 @@ impl App {
                 go = Some(self.addr.clone());
             }
         });
+        // Лупа слева в строке: при фокусе подсвечивается цветом темы.
+        {
+            let c = field.response.rect.left_center() + Vec2::new(19.0, -1.0);
+            let st = Stroke::new(1.7_f32, mix(Color32::from_rgb(130, 132, 150), link(), glow));
+            let p = ui.painter();
+            p.circle_stroke(c, 5.2, st);
+            p.line_segment([c + Vec2::new(3.8, 3.8), c + Vec2::new(8.0, 8.0)], st);
+        }
         if let Some(g) = go {
             self.go(&g);
         }
@@ -2532,6 +2599,7 @@ impl App {
                 let (g0, g1) = if self.tabs[self.active].incognito { (Color32::from_rgb(40, 40, 43), Color32::from_rgb(20, 20, 22)) } else { (mix(Color32::from_rgb(15, 15, 20), accent_b(), 0.16), Color32::from_rgb(15, 15, 20)) };
                 let full = ui.max_rect().expand(10.0);
                 grad_rrect(ui.painter(), full, 0.0, g0, g1, true);
+                grad_rrect(ui.painter(), egui::Rect::from_min_max(egui::pos2(full.right() - 1.0, full.top()), full.right_bottom()), 0.0, alpha(accent_b(), 10), alpha(accent_b(), 70), true);
                 if self.bcfg.glow && !self.tabs[self.active].incognito {
                     // Два мягких пятна акцентных цветов медленно плавают за панелью.
                     let t = if self.bcfg.anim { ui.input(|i| i.time) as f32 } else { 0.0 };
@@ -2547,19 +2615,27 @@ impl App {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::hover());
                     paint_logo(ui.painter(), r);
-                    ui.label(RichText::new("Petal").size(22.0).strong().color(TEXT));
+                    ui.label(RichText::new(self.brand).size(22.0).strong().color(TEXT));
                 });
-                ui.add_space(10.0);
-                self.nav_block(ui);
                 ui.add_space(12.0);
-                ui.label(RichText::new("Вкладки").size(13.0).color(MUTED));
-                ui.add_space(4.0);
-                if accent_wide(ui, "+ Новая вкладка").clicked() {
+                self.nav_block(ui);
+                ui.add_space(16.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("ВКЛАДКИ").size(11.5).color(Color32::from_rgb(130, 132, 150)));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(self.tabs.len().to_string()).size(11.5).color(Color32::from_rgb(130, 132, 150)));
+                    });
+                });
+                ui.add_space(6.0);
+                if new_tab_row(ui).clicked() {
                     new_tab = true;
                 }
                 ui.add_space(8.0);
                 egui::TopBottomPanel::bottom("tabs_bottom").frame(Frame::NONE).show_inside(ui, |ui| {
-                    ui.add_space(6.0);
+                    ui.add_space(4.0);
+                    let (line, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
+                    grad_rrect(ui.painter(), line, 0.0, alpha(Color32::WHITE, 0), alpha(Color32::WHITE, 26), false);
+                    ui.add_space(8.0);
                     let r = downloads_button(ui, active_downloads, self.dl_open);
                     self.dl_pos = r.rect.left_top() - Vec2::new(0.0, 8.0);
                     self.dl_btn = r.rect;
@@ -2576,14 +2652,14 @@ impl App {
                         let close_resp = ui.interact(close_rect, ui.id().with(("close_tab", i)), Sense::click());
                         let ht = ui.ctx().abt(resp.id.with("hov"), resp.hovered(), 0.14);
                         let at = ui.ctx().abt(resp.id.with("act"), active, 0.22);
-                        let bg = mix(Color32::from_rgba_unmultiplied(44, 45, 50, (255.0 * ht) as u8), Color32::from_rgb(48, 56, 78), at);
                         let p = ui.painter();
-                        p.rect_filled(row, CornerRadius::same(11), bg);
-                        if at > 0.01 {
-                            p.rect_stroke(row, CornerRadius::same(11), Stroke::new(1.2_f32, alpha(accent_b(), (110.0 * at) as u8)), egui::StrokeKind::Inside);
+                        if ht > 0.01 {
+                            p.rect_filled(row, CornerRadius::same(12), Color32::from_rgba_unmultiplied(255, 255, 255, (13.0 * ht * (1.0 - at)) as u8));
                         }
                         if at > 0.01 {
-                            p.rect_filled(egui::Rect::from_center_size(row.left_center() + Vec2::new(2.5, 0.0), Vec2::new(3.5, 22.0 * at)), CornerRadius::same(2), link());
+                            // Активная вкладка: стеклянная карточка с мягким градиентом темы и тонкой обводкой.
+                            grad_rrect(p, row, 12.0, alpha(accent_a(), (52.0 * at) as u8), alpha(accent_b(), (60.0 * at) as u8), false);
+                            p.rect_stroke(row, CornerRadius::same(12), Stroke::new(1.0_f32, alpha(accent_b(), (120.0 * at) as u8)), egui::StrokeKind::Inside);
                         }
                         // Цветной кружок с первой буквой сайта.
                         let label = tab.label();
@@ -2612,17 +2688,19 @@ impl App {
                             Align2::LEFT_CENTER,
                             label,
                             FontId::proportional(14.0),
-                            if active { link() } else { TEXT },
+                            if active { Color32::WHITE } else { Color32::from_rgb(208, 210, 222) },
                         );
+                        // Крестик виден у активной вкладки и при наведении.
+                        let show_x = ht.max(at);
                         if close_resp.hovered() {
-                            p.circle_filled(close_rect.center(), 10.0, Color32::from_rgb(70, 72, 78));
+                            p.circle_filled(close_rect.center(), 10.0, Color32::from_rgba_unmultiplied(255, 255, 255, 30));
                         }
                         p.text(
                             close_rect.center(),
                             Align2::CENTER_CENTER,
                             "×",
                             FontId::proportional(17.0),
-                            if close_resp.hovered() { TEXT } else { MUTED },
+                            alpha(if close_resp.hovered() { TEXT } else { MUTED }, (255.0 * show_x.max(if close_resp.hovered() { 1.0 } else { 0.0 })) as u8),
                         );
                         if close_resp.clicked() || resp.middle_clicked() {
                             close = Some(i);
@@ -2802,7 +2880,7 @@ impl App {
                         }
                         if d.state == store::DL_DONE && exists {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 6.0;
+                                ui.spacing_mut().item_spacing.x = 5.0;
                                 if store::is_risky_file(&d.path) {
                                     ui.label(RichText::new("Запускайте сами").size(12.0).color(YELLOW));
                                 } else if chip(ui, "Открыть").clicked() {
@@ -3206,7 +3284,7 @@ impl App {
             });
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Ширина левой панели").color(MUTED));
-                ui.add(egui::Slider::new(&mut self.bcfg.sidebar_w, 220..=340).suffix(" px").step_by(10.0));
+                ui.add(egui::Slider::new(&mut self.bcfg.sidebar_w, 240..=340).suffix(" px").step_by(10.0));
             });
             ui.add_space(4.0);
             ui.checkbox(&mut self.bcfg.anim, "Анимации (интерфейс и новая вкладка)");
