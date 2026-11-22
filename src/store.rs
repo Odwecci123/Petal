@@ -75,26 +75,199 @@ pub struct BrowserCfg {
     pub save_history: bool,
     /// Страница новой вкладки.
     pub home: String,
+    /// Поисковая система: google, yandex, ddg, bing.
+    pub search: String,
+    /// Защищённый DNS: off, cloudflare, google, quad9, adguard, yandex, comss, custom.
+    pub doh: String,
+    /// Свой адрес DoH-сервера (https://…/dns-query).
+    pub doh_custom: String,
+    /// Прокси: пусто, либо http://хост:порт, либо socks5://хост:порт.
+    pub proxy: String,
+    /// Масштаб страниц в процентах.
+    pub zoom: u32,
+    /// Не открывать всплывающие окна сайтов.
+    pub block_popups: bool,
+    /// Говорить сайтам «не отслеживайте меня» (DNT и GPC).
+    pub privacy_signals: bool,
+    /// Стирать cookie и кэш при следующем запуске.
+    pub clear_on_exit: bool,
+    /// Как представляться сайтам: default, chrome, firefox, mobile.
+    pub ua: String,
+    /// Отключить аппаратное ускорение.
+    pub no_gpu: bool,
+    /// Не раскрывать настоящий IP через WebRTC.
+    pub webrtc_safe: bool,
+    /// Своя папка для загрузок (пусто = обычная).
+    pub dl_dir: String,
+    /// Язык сайтов: пусто (как в системе), ru, en.
+    pub lang: String,
+    /// Тёмная тема для сайтов, которые её поддерживают.
+    pub dark_sites: bool,
 }
 
 impl Default for BrowserCfg {
     fn default() -> Self {
-        BrowserCfg { restore: true, save_history: true, home: "https://www.google.com/".to_string() }
+        BrowserCfg {
+            restore: true,
+            save_history: true,
+            home: "https://www.google.com/".to_string(),
+            search: "google".to_string(),
+            doh: "off".to_string(),
+            doh_custom: String::new(),
+            proxy: String::new(),
+            zoom: 100,
+            block_popups: false,
+            privacy_signals: true,
+            clear_on_exit: false,
+            ua: "default".to_string(),
+            no_gpu: false,
+            webrtc_safe: false,
+            dl_dir: String::new(),
+            lang: String::new(),
+            dark_sites: true,
+        }
+    }
+}
+
+pub const SEARCH_ENGINES: [(&str, &str, &str); 4] = [
+    ("google", "Google", "https://www.google.com/search?q="),
+    ("yandex", "Яндекс", "https://yandex.ru/search/?text="),
+    ("ddg", "DuckDuckGo", "https://duckduckgo.com/?q="),
+    ("bing", "Bing", "https://www.bing.com/search?q="),
+];
+
+pub const DOH_SERVERS: [(&str, &str, &str); 7] = [
+    ("off", "Системный (как в Windows)", ""),
+    ("cloudflare", "Cloudflare 1.1.1.1", "https://cloudflare-dns.com/dns-query"),
+    ("google", "Google Public DNS", "https://dns.google/dns-query"),
+    ("quad9", "Quad9", "https://dns.quad9.net/dns-query"),
+    ("adguard", "AdGuard (без рекламы)", "https://dns.adguard-dns.com/dns-query"),
+    ("yandex", "Яндекс DNS", "https://common.dns.yandex.net/dns-query"),
+    ("comss", "Comss.one DNS", "https://dns.comss.one/dns-query"),
+];
+
+pub fn search_prefix(id: &str) -> &'static str {
+    SEARCH_ENGINES.iter().find(|e| e.0 == id).map(|e| e.2).unwrap_or(SEARCH_ENGINES[0].2)
+}
+
+pub fn search_name(id: &str) -> &'static str {
+    SEARCH_ENGINES.iter().find(|e| e.0 == id).map(|e| e.1).unwrap_or(SEARCH_ENGINES[0].1)
+}
+
+/// Адрес DoH-сервера для выбранного пункта, если защищённый DNS включён и адрес корректен.
+pub fn doh_template(c: &BrowserCfg) -> Option<String> {
+    if c.doh == "custom" {
+        let t = c.doh_custom.trim();
+        return (t.starts_with("https://") && !t.contains(char::is_whitespace)).then(|| t.to_string());
+    }
+    DOH_SERVERS.iter().find(|e| e.0 == c.doh && !e.2.is_empty()).map(|e| e.2.to_string())
+}
+
+fn pct(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Прокси в виде, пригодном для параметра Chromium; пустая строка, если он не задан или записан неверно.
+pub fn proxy_arg(c: &BrowserCfg) -> String {
+    let p = c.proxy.trim();
+    let ok = (p.starts_with("http://") || p.starts_with("socks5://")) && p.len() > 9 && !p.contains(char::is_whitespace) && !p.contains('"');
+    if ok { format!("--proxy-server={p}") } else { String::new() }
+}
+
+/// Параметры запуска встроенного браузера. Начало повторяет то, что wry добавляет сам, иначе оно пропадёт.
+pub fn browser_args(c: &BrowserCfg) -> String {
+    let mut a = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required");
+    if let Some(t) = doh_template(c) {
+        a.push_str(&format!(
+            " --enable-features=DnsOverHttps<DoHTrial --force-fieldtrials=DoHTrial/Group1 --force-fieldtrial-params=DoHTrial.Group1:Fallback/true/Templates/{}",
+            pct(&t)
+        ));
+    }
+    let proxy = proxy_arg(c);
+    if !proxy.is_empty() {
+        a.push(' ');
+        a.push_str(&proxy);
+    }
+    if c.no_gpu {
+        a.push_str(" --disable-gpu");
+    }
+    if c.webrtc_safe {
+        a.push_str(" --force-webrtc-ip-handling-policy=disable_non_proxied_udp");
+    }
+    match c.lang.as_str() {
+        "ru" => a.push_str(" --accept-lang=ru-RU,ru"),
+        "en" => a.push_str(" --accept-lang=en-US,en"),
+        _ => {}
+    }
+    a
+}
+
+/// Строка «User-Agent» для выбранного пункта (пусто = как у самого браузера).
+pub fn user_agent(id: &str) -> &'static str {
+    match id {
+        "chrome" => "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "firefox" => "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+        "mobile" => "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
+        _ => "",
     }
 }
 
 pub fn cfg_to_text(c: &BrowserCfg) -> String {
-    format!("restore={}\nsave_history={}\nhome={}\n", c.restore as u8, c.save_history as u8, c.home)
+    let one = |b: bool| b as u8;
+    format!(
+        "restore={}\nsave_history={}\nhome={}\nsearch={}\ndoh={}\ndoh_custom={}\nproxy={}\nzoom={}\nblock_popups={}\nprivacy_signals={}\nclear_on_exit={}\nua={}\nno_gpu={}\nwebrtc_safe={}\ndl_dir={}\nlang={}\ndark_sites={}\n",
+        one(c.restore),
+        one(c.save_history),
+        c.home,
+        c.search,
+        c.doh,
+        c.doh_custom,
+        c.proxy,
+        c.zoom,
+        one(c.block_popups),
+        one(c.privacy_signals),
+        one(c.clear_on_exit),
+        c.ua,
+        one(c.no_gpu),
+        one(c.webrtc_safe),
+        c.dl_dir,
+        c.lang,
+        one(c.dark_sites),
+    )
 }
 
 pub fn cfg_from_text(s: &str) -> BrowserCfg {
     let mut c = BrowserCfg::default();
     for line in s.lines() {
         let Some((k, v)) = line.split_once('=') else { continue };
-        match k.trim() {
-            "restore" => c.restore = v.trim() == "1",
-            "save_history" => c.save_history = v.trim() == "1",
-            "home" if !v.trim().is_empty() => c.home = v.trim().to_string(),
+        let (k, v) = (k.trim(), v.trim());
+        let on = v == "1";
+        match k {
+            "restore" => c.restore = on,
+            "save_history" => c.save_history = on,
+            "home" if !v.is_empty() => c.home = v.to_string(),
+            "search" if SEARCH_ENGINES.iter().any(|e| e.0 == v) => c.search = v.to_string(),
+            "doh" if v == "custom" || DOH_SERVERS.iter().any(|e| e.0 == v) => c.doh = v.to_string(),
+            "doh_custom" => c.doh_custom = v.to_string(),
+            "proxy" => c.proxy = v.to_string(),
+            "zoom" => c.zoom = v.parse::<u32>().unwrap_or(100).clamp(50, 200),
+            "block_popups" => c.block_popups = on,
+            "privacy_signals" => c.privacy_signals = on,
+            "clear_on_exit" => c.clear_on_exit = on,
+            "ua" if matches!(v, "default" | "chrome" | "firefox" | "mobile") => c.ua = v.to_string(),
+            "no_gpu" => c.no_gpu = on,
+            "webrtc_safe" => c.webrtc_safe = on,
+            "dl_dir" => c.dl_dir = v.to_string(),
+            "lang" if matches!(v, "" | "ru" | "en") => c.lang = v.to_string(),
+            "dark_sites" => c.dark_sites = on,
             _ => {}
         }
     }
@@ -449,10 +622,53 @@ mod tests {
 
     #[test]
     fn cfg_roundtrip_and_defaults() {
-        let c = BrowserCfg { restore: false, save_history: true, home: "https://ya.ru/".into() };
+        let c = BrowserCfg {
+            restore: false,
+            home: "https://ya.ru/".into(),
+            search: "ddg".into(),
+            doh: "quad9".into(),
+            proxy: "socks5://127.0.0.1:1080".into(),
+            zoom: 125,
+            block_popups: true,
+            clear_on_exit: true,
+            ua: "firefox".into(),
+            dl_dir: "D:\\Загрузки".into(),
+            lang: "en".into(),
+            dark_sites: false,
+            ..BrowserCfg::default()
+        };
         assert_eq!(cfg_from_text(&cfg_to_text(&c)), c);
         assert_eq!(cfg_from_text(""), BrowserCfg::default());
         assert!(cfg_from_text("мусор\nrestore=1").restore);
+    }
+
+    #[test]
+    fn browser_args_follow_settings() {
+        let mut c = BrowserCfg::default();
+        let base = browser_args(&c);
+        assert!(base.contains("msSmartScreenProtection") && base.contains("autoplay-policy"));
+        assert!(!base.contains("DnsOverHttps") && !base.contains("proxy-server"));
+        c.doh = "cloudflare".into();
+        assert!(browser_args(&c).contains("Templates/https%3A%2F%2Fcloudflare-dns.com%2Fdns-query"));
+        c.doh = "custom".into();
+        c.doh_custom = "http://плохо".into();
+        assert!(!browser_args(&c).contains("DnsOverHttps"));
+        c.doh_custom = "https://dns.example/dns-query".into();
+        assert!(browser_args(&c).contains("dns.example"));
+        c.proxy = "socks5://127.0.0.1:1080".into();
+        c.no_gpu = true;
+        c.lang = "ru".into();
+        let a = browser_args(&c);
+        assert!(a.contains("--proxy-server=socks5://127.0.0.1:1080") && a.contains("--disable-gpu") && a.contains("ru-RU"));
+        c.proxy = "ftp://x".into();
+        assert!(!browser_args(&c).contains("proxy-server"));
+    }
+
+    #[test]
+    fn cfg_ignores_bad_values() {
+        let c = cfg_from_text("search=нет\nzoom=900\nua=бред\ndoh=x\nlang=de");
+        assert_eq!(c, BrowserCfg { zoom: 200, ..BrowserCfg::default() });
+        assert_eq!(search_prefix("bing"), "https://www.bing.com/search?q=");
     }
 
     #[test]

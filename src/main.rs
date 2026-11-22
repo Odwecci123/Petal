@@ -1,3 +1,4 @@
+#![cfg_attr(not(windows), allow(dead_code))]
 #![allow(clippy::too_many_arguments)]
 // Petal: браузер с вкладками и набор функций (саундпад, калькулятор, случайные числа, колесо удачи) в тёмном стиле.
 // Запуск: cargo run --release
@@ -461,6 +462,28 @@ enum DlEvent {
 }
 
 static DL_EVENTS: Mutex<Vec<DlEvent>> = Mutex::new(Vec::new());
+/// Настройки, которые браузер читает один раз при запуске (параметры движка, прокси, представление сайтам).
+static FROZEN: std::sync::OnceLock<store::BrowserCfg> = std::sync::OnceLock::new();
+/// Настройки, которые действуют сразу, без перезапуска.
+static BLOCK_POPUPS: AtomicBool = AtomicBool::new(false);
+static SEARCH_IDX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static DL_DIR: Mutex<String> = Mutex::new(String::new());
+static ZOOM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+fn sync_live(c: &store::BrowserCfg) {
+    BLOCK_POPUPS.store(c.block_popups, Ordering::Relaxed);
+    ZOOM.store(c.zoom, Ordering::Relaxed);
+    SEARCH_IDX.store(store::SEARCH_ENGINES.iter().position(|e| e.0 == c.search).unwrap_or(0), Ordering::Relaxed);
+    if let Ok(mut d) = DL_DIR.lock() {
+        if *d != c.dl_dir {
+            *d = c.dl_dir.clone();
+        }
+    }
+}
+
+fn search_prefix_now() -> &'static str {
+    store::SEARCH_ENGINES[SEARCH_IDX.load(Ordering::Relaxed).min(store::SEARCH_ENGINES.len() - 1)].2
+}
 
 
 fn url_encode(s: &str) -> String {
@@ -477,6 +500,7 @@ fn url_encode(s: &str) -> String {
 
 /// Собственная стартовая страница Petal: лежит файлом в папке данных, логотип вшит прямо в страницу.
 static NEWTAB_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static INCOGNITO_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 const NEWTAB_HTML: &str = r##"<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Новая вкладка</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">
@@ -525,12 +549,12 @@ form:focus-within svg{stroke:#b9bbff}
 #m button.ok{background:linear-gradient(90deg,#ec4899,#7c5cff)}#m button:hover{filter:brightness(1.2)}
 </style></head><body><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span>Petal</span></div>
 <form id="f"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9a9aa3" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
-<input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в Google или введите адрес"></form>
+<input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в @@ENGINE@@ или введите адрес"></form>
 <div class="tiles" id="tiles"></div></div>
 <div id="m"><form id="mf"><h3>Новая закладка</h3><input id="mn" placeholder="Название" autocomplete="off"><input id="mu" placeholder="Адрес сайта, например youtube.com" autocomplete="off" spellcheck="false"><div class="r"><button type="button" id="mc">Отмена</button><button class="ok" type="submit">Добавить</button></div></form></div>
 <script>
 document.getElementById('f').addEventListener('submit',function(e){e.preventDefault();var t=document.getElementById('q').value.trim();if(!t)return;var u;
-if(/^https?:\/\//i.test(t))u=t;else if(!/\s/.test(t)&&t.indexOf('.')>0&&t.slice(-1)!=='.'&&t.indexOf('://')<0)u='https://'+t;else u='https://www.google.com/search?q='+encodeURIComponent(t);location.href=u;});
+if(/^https?:\/\//i.test(t))u=t;else if(!/\s/.test(t)&&t.indexOf('.')>0&&t.slice(-1)!=='.'&&t.indexOf('://')<0)u='https://'+t;else u='@@SEARCH@@'+encodeURIComponent(t);location.href=u;});
 document.getElementById('q').focus();
 var K='petal_bookmarks',D=[{n:'YouTube',u:'https://www.youtube.com/'},{n:'ВКонтакте',u:'https://vk.com/'},{n:'Яндекс',u:'https://ya.ru/'},{n:'Google',u:'https://www.google.com/'}];
 function load(){try{var v=JSON.parse(localStorage.getItem(K));if(Array.isArray(v))return v;}catch(e){}return D.slice();}
@@ -552,6 +576,42 @@ document.getElementById('mf').addEventListener('submit',function(e){e.preventDef
 draw();
 </script></body></html>"##;
 
+const INCOGNITO_HTML: &str = r##"<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Новая вкладка</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">
+<style>
+html,body{margin:0;height:100%;background:#1a1a1c;color:#e4e4e8;font-family:"Segoe UI",system-ui,sans-serif;overflow:hidden}
+body::before{content:"";position:fixed;left:50%;top:-30vmax;width:70vmax;height:60vmax;margin-left:-35vmax;border-radius:50%;background:radial-gradient(closest-side,rgba(255,255,255,.07),transparent);animation:br 9s ease-in-out infinite alternate;pointer-events:none}
+@keyframes br{to{transform:scale(1.25);opacity:.6}}
+.w{position:relative;display:flex;flex-direction:column;align-items:center;padding-top:12vh}
+.ic{width:92px;height:92px;border-radius:26px;background:linear-gradient(160deg,#3a3a3f,#26262a);display:flex;align-items:center;justify-content:center;box-shadow:0 14px 40px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.08);animation:up .7s cubic-bezier(.2,.8,.2,1) both,fl 6s ease-in-out .7s infinite}
+@keyframes fl{50%{transform:translateY(-5px)}}
+@keyframes up{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+h1{margin:26px 0 8px;font-size:40px;font-weight:700;letter-spacing:-.5px;animation:up .7s .08s both}
+.s{margin:0 0 38px;color:#9d9da6;font-size:16px;text-align:center;max-width:560px;animation:up .7s .14s both}
+form{width:min(760px,86vw);position:relative;animation:up .7s .2s both}
+input{box-sizing:border-box;width:100%;height:54px;border:0;border-radius:27px;background:#2a2a2e;color:#fff;font-size:17px;padding:0 24px 0 58px;outline:none;transition:box-shadow .25s,background .25s}
+input::placeholder{color:#85858e}
+input:hover{background:#303034}
+input:focus{background:#303034;box-shadow:0 0 0 2px #8e8e96,0 8px 28px rgba(0,0,0,.4)}
+svg.q{position:absolute;left:21px;top:16px}
+.c{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:40px;width:min(760px,86vw);animation:up .7s .3s both}
+.k{flex:1 1 300px;background:#222225;border:1px solid rgba(255,255,255,.06);border-radius:20px;padding:18px 20px}
+.k b{display:block;margin-bottom:8px;font-size:15px;color:#fff}
+.k ul{margin:0;padding-left:18px;color:#9d9da6;font-size:14px;line-height:1.7}
+</style></head><body><div class="w">
+<div class="ic"><svg width="56" height="56" viewBox="0 0 64 64" fill="#d2d2d8"><path d="M14 31 21 11c1-3 3-4 6-4h10c3 0 5 1 6 4l7 20z"/><rect x="6" y="31" width="52" height="5" rx="2.5"/><circle cx="21" cy="47" r="8" fill="none" stroke="#d2d2d8" stroke-width="3.5"/><circle cx="43" cy="47" r="8" fill="none" stroke="#d2d2d8" stroke-width="3.5"/><path d="M29 46q3-3 6 0" fill="none" stroke="#d2d2d8" stroke-width="3.5"/></svg></div>
+<h1>Режим инкогнито</h1>
+<p class="s">Petal не запоминает, что вы открывали в этой вкладке. Закройте её, и всё исчезнет.</p>
+<form id="f"><svg class="q" width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#85858e" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
+<input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в @@ENGINE@@ или введите адрес"></form>
+<div class="c"><div class="k"><b>Не сохраняется</b><ul><li>история посещений</li><li>cookie и данные сайтов</li><li>введённые в формы данные</li></ul></div>
+<div class="k"><b>Остаётся видно</b><ul><li>сайтам, которые вы открываете</li><li>провайдеру и администратору сети</li><li>скачанные файлы остаются в папке</li></ul></div></div></div>
+<script>
+document.getElementById('f').addEventListener('submit',function(e){e.preventDefault();var t=document.getElementById('q').value.trim();if(!t)return;var u;
+if(/^https?:\/\//i.test(t))u=t;else if(!/\s/.test(t)&&t.indexOf('.')>0&&t.slice(-1)!=='.'&&t.indexOf('://')<0)u='https://'+t;else u='@@SEARCH@@'+encodeURIComponent(t);location.href=u;});
+document.getElementById('q').focus();
+</script></body></html>"##;
+
 fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len() * 4 / 3 + 4);
@@ -565,23 +625,38 @@ fn base64(data: &[u8]) -> String {
     out
 }
 
-/// Пишет стартовую страницу на диск и возвращает её адрес (file://...).
-fn newtab_url() -> &'static str {
-    NEWTAB_URL.get_or_init(|| {
-        let html = NEWTAB_HTML.replace("@@LOGO@@", &base64(include_bytes!("../assets/petal.png")));
-        let path = std::env::current_dir().unwrap_or_default().join("petal_newtab.html");
-        let _ = std::fs::write(&path, html);
-        let p = path.to_string_lossy().replace('\\', "/");
-        let mut enc = String::new();
-        for b in p.bytes() {
-            if b.is_ascii_alphanumeric() || b"/:._-~".contains(&b) {
-                enc.push(b as char);
-            } else {
-                enc.push_str(&format!("%{b:02X}"));
-            }
+/// Адрес файла в папке данных в виде file://...
+fn page_url(name: &str) -> String {
+    let path = std::env::current_dir().unwrap_or_default().join(name);
+    let p = path.to_string_lossy().replace('\\', "/");
+    let mut enc = String::new();
+    for b in p.bytes() {
+        if b.is_ascii_alphanumeric() || b"/:._-~".contains(&b) {
+            enc.push(b as char);
+        } else {
+            enc.push_str(&format!("%{b:02X}"));
         }
-        format!("file://{}{}", if enc.starts_with('/') { "" } else { "/" }, enc)
-    })
+    }
+    format!("file://{}{}", if enc.starts_with('/') { "" } else { "/" }, enc)
+}
+
+/// Пишет обе стартовые страницы (обычную и инкогнито) в папку данных; поисковая система вшивается в них.
+fn write_pages(search: &str) {
+    let fill = |t: &str| {
+        t.replace("@@ENGINE@@", store::search_name(search))
+            .replace("@@SEARCH@@", store::search_prefix(search))
+    };
+    let html = fill(NEWTAB_HTML).replace("@@LOGO@@", &base64(include_bytes!("../assets/petal.png")));
+    let _ = std::fs::write("petal_newtab.html", html);
+    let _ = std::fs::write("petal_incognito.html", fill(INCOGNITO_HTML));
+}
+
+fn newtab_url() -> &'static str {
+    NEWTAB_URL.get_or_init(|| page_url("petal_newtab.html"))
+}
+
+fn incognito_url() -> &'static str {
+    INCOGNITO_URL.get_or_init(|| page_url("petal_incognito.html"))
 }
 
 /// Адрес для новой вкладки: стартовая страница Petal, если в настройках не выбрана своя домашняя.
@@ -596,7 +671,7 @@ fn new_tab_url(home: &str) -> String {
 
 /// В адресной строке стартовую страницу показываем пустой.
 fn shown_url(url: &str) -> String {
-    if url.starts_with("file://") && url.ends_with("/petal_newtab.html") {
+    if url.starts_with("file://") && (url.ends_with("/petal_newtab.html") || url.ends_with("/petal_incognito.html")) {
         String::new()
     } else {
         url.to_string()
@@ -612,7 +687,7 @@ fn normalize_url(input: &str) -> String {
     if !t.contains("://") && !t.contains(' ') && t.contains('.') && !t.ends_with('.') && !t.starts_with('.') {
         return format!("https://{t}");
     }
-    format!("https://www.google.com/search?q={}", url_encode(t))
+    format!("{}{}", search_prefix_now(), url_encode(t))
 }
 
 /// Настоящий браузер (WebView2, то есть Chromium из Edge) внутри окна. Только Windows.
@@ -623,7 +698,7 @@ mod web {
     use std::sync::{Arc, Mutex};
     use wry::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
     use wry::{NewWindowResponse, Rect, WebView, WebViewBuilder, WebViewBuilderExtWindows};
-    use super::{DlEvent, DL_EVENTS};
+    use super::{store, DlEvent, DL_EVENTS};
 
     const PIP_JS: &str = r##"(function(){if(window.__petalPip)return;window.__petalPip=1;var b=null,v=null,t=0;
 function mk(){b=document.createElement('div');b.setAttribute('style','position:fixed;z-index:2147483647;width:34px;height:34px;border-radius:8px;background:rgba(30,30,34,.82);display:none;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4);');
@@ -650,6 +725,8 @@ document.addEventListener('fullscreenchange',hide);
 })();"##;
     /// Сообщает, можно ли идти назад и вперёд (1 = назад, 2 = вперёд), чтобы стрелки гасли, когда идти некуда.
     const NAV_JS: &str = "(function(){if(window!==window.top)return;var l=-1;function r(){var v=0;try{if(window.navigation){v=(navigation.canGoBack?1:0)|(navigation.canGoForward?2:0);}else{v=(history.length>1?1:0)|2;}}catch(e){}if(v!==l){l=v;try{window.ipc.postMessage('petal:nav:'+v);}catch(e){}}}setInterval(r,400);r();})();";
+    /// Сообщает сайтам «не отслеживайте меня» (Do Not Track и Global Privacy Control).
+    const PRIVACY_JS: &str = "(function(){try{Object.defineProperty(navigator,'doNotTrack',{get:function(){return '1';}});Object.defineProperty(navigator,'globalPrivacyControl',{get:function(){return true;}});}catch(e){}})();";
     const FULLSCREEN_JS: &str = "(function(){function s(){try{window.ipc.postMessage(document.fullscreenElement?'petal:fs:1':'petal:fs:0');}catch(e){}}document.addEventListener('fullscreenchange',s);document.addEventListener('webkitfullscreenchange',s);})();";
 
     pub struct Browser {
@@ -677,7 +754,8 @@ document.addEventListener('fullscreenchange',hide);
             pip: Arc<AtomicBool>,
             nav: Arc<AtomicU8>,
         ) -> Result<Self, String> {
-            let webview = WebViewBuilder::new()
+            let cfg = super::FROZEN.get().cloned().unwrap_or_default();
+            let mut builder = WebViewBuilder::new()
                 // Страница сообщает, когда её элемент (например, видео на YouTube) уходит на весь экран.
                 .with_initialization_script(FULLSCREEN_JS)
                 .with_initialization_script(PIP_JS)
@@ -696,8 +774,20 @@ document.addEventListener('fullscreenchange',hide);
                 .with_incognito(incognito)
                 // Тёмный фон до загрузки страницы и тёмная тема для сайтов, которые её поддерживают.
                 .with_background_color((31, 31, 31, 255))
-                .with_theme(wry::Theme::Dark)
+                .with_theme(if cfg.dark_sites { wry::Theme::Dark } else { wry::Theme::Light })
+                .with_additional_browser_args(store::browser_args(&cfg))
                 .with_download_started_handler(|url, path| {
+                    // Своя папка для загрузок, если выбрана в настройках.
+                    if let Ok(dir) = super::DL_DIR.lock() {
+                        if !dir.trim().is_empty() {
+                            if let Some(name) = path.file_name().map(|n| n.to_owned()) {
+                                let d = std::path::PathBuf::from(dir.trim());
+                                if std::fs::create_dir_all(&d).is_ok() {
+                                    *path = d.join(name);
+                                }
+                            }
+                        }
+                    }
                     if let Ok(mut q) = DL_EVENTS.lock() {
                         q.push(DlEvent::Started { url, path: path.clone() });
                     }
@@ -719,14 +809,26 @@ document.addEventListener('fullscreenchange',hide);
                     // Окно с заданным размером (вход через Google, Facebook и т. п.) пусть остаётся окном,
                     // иначе оно теряет связь со страницей. Обычные ссылки «в новом окне» открываем вкладкой.
                     if features.size.is_some() {
-                        NewWindowResponse::Allow
+                        if super::BLOCK_POPUPS.load(Ordering::Relaxed) {
+                            NewWindowResponse::Deny
+                        } else {
+                            NewWindowResponse::Allow
+                        }
                     } else {
                         let _ = new_tabs.send(url);
                         NewWindowResponse::Deny
                     }
                 })
-                .build_as_child(frame)
-                .map_err(|e| e.to_string())?;
+                ;
+            let ua = store::user_agent(&cfg.ua);
+            if !ua.is_empty() {
+                builder = builder.with_user_agent(ua);
+            }
+            if cfg.privacy_signals {
+                builder = builder.with_initialization_script(PRIVACY_JS);
+            }
+            let webview = builder.build_as_child(frame).map_err(|e| e.to_string())?;
+            let _ = webview.zoom(super::ZOOM.load(Ordering::Relaxed) as f64 / 100.0);
             Ok(Browser { webview })
         }
         pub fn navigate(&self, url: &str) {
@@ -749,6 +851,10 @@ document.addEventListener('fullscreenchange',hide);
         }
         pub fn focus_parent(&self) {
             let _ = self.webview.focus_parent();
+        }
+        /// Масштаб страницы в процентах.
+        pub fn set_zoom(&self, percent: u32) {
+            let _ = self.webview.zoom(percent as f64 / 100.0);
         }
         /// Стирает cookie, кэш и прочие данные сайтов (из аккаунтов придётся выйти).
         pub fn clear_data(&self) {
@@ -787,6 +893,7 @@ mod web {
         }
         pub fn set_bounds(&self, _: [f32; 4]) {}
         pub fn focus_parent(&self) {}
+        pub fn set_zoom(&self, _: u32) {}
         pub fn clear_data(&self) {}
     }
 }
@@ -1124,6 +1231,27 @@ fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
             add(ui);
         });
     ui.add_space(8.0);
+}
+
+fn section(ui: &mut egui::Ui, title: &str) {
+    ui.label(RichText::new(title).size(17.0).strong().color(TEXT));
+    ui.add_space(6.0);
+}
+
+fn note(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(2.0);
+    ui.label(RichText::new(text).size(13.0).color(MUTED));
+}
+
+/// Выпадающий список «подпись + варианты»; `cur` хранит идентификатор выбранного пункта.
+fn combo(ui: &mut egui::Ui, id: &str, label: &str, opts: &[(&str, &str)], cur: &mut String) {
+    ui.label(RichText::new(label).color(MUTED));
+    let shown = opts.iter().find(|o| o.0 == cur.as_str()).map(|o| o.1).unwrap_or("—");
+    egui::ComboBox::from_id_salt(id).selected_text(shown).width(260.0).show_ui(ui, |ui| {
+        for (k, name) in opts {
+            ui.selectable_value(cur, k.to_string(), *name);
+        }
+    });
 }
 
 fn header(ui: &mut egui::Ui, title: &str, sub: &str) {
@@ -1879,6 +2007,8 @@ struct App {
     dots_open: bool,
     /// Сейчас окно на весь экран из-за страницы; адрес, с которого это началось.
     page_fs: bool,
+    applied_zoom: u32,
+    applied_search: String,
     menu_pos: egui::Pos2,
     dl_open: bool,
     dl_pos: egui::Pos2,
@@ -1948,6 +2078,13 @@ impl App {
     fn new() -> Self {
         let cfg = load_settings();
         let bcfg = store::load_cfg();
+        let _ = FROZEN.set(bcfg.clone());
+        sync_live(&bcfg);
+        write_pages(&bcfg.search);
+        if bcfg.clear_on_exit {
+            // Браузер ещё не запущен, поэтому его папку с cookie и кэшем можно стереть целиком.
+            let _ = std::fs::remove_dir_all("WebView2");
+        }
         let (urls, active) = if bcfg.restore { store::load_session() } else { (Vec::new(), 0) };
         let (tabs, active) = if urls.is_empty() {
             (vec![Pane::new(&new_tab_url(&bcfg.home))], 0)
@@ -1963,6 +2100,8 @@ impl App {
             tool_win: [false; 8],
             dots_open: false,
             page_fs: false,
+            applied_zoom: 100,
+            applied_search: String::new(),
             menu_pos: egui::Pos2::ZERO,
             dl_open: false,
             dl_pos: egui::Pos2::ZERO,
@@ -2182,7 +2321,8 @@ impl App {
             .resizable(false)
             .frame(Frame::new().fill(SIDE_BG).inner_margin(Margin::same(10)))
             .show(ctx, |ui| {
-                grad_rrect(ui.painter(), ui.max_rect().expand(10.0), 0.0, Color32::from_rgb(30, 22, 46), Color32::from_rgb(15, 15, 20), true);
+                let (g0, g1) = if self.tabs[self.active].incognito { (Color32::from_rgb(40, 40, 43), Color32::from_rgb(20, 20, 22)) } else { (Color32::from_rgb(30, 22, 46), Color32::from_rgb(15, 15, 20)) };
+                grad_rrect(ui.painter(), ui.max_rect().expand(10.0), 0.0, g0, g1, true);
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::hover());
                     paint_logo(ui.painter(), r);
@@ -2322,7 +2462,7 @@ impl App {
                 Tool::Wheel => (700.0, 820.0),
                 Tool::History => (600.0, 680.0),
                 Tool::Passwords => (560.0, 720.0),
-                Tool::Settings => (560.0, 520.0),
+                Tool::Settings => (640.0, 780.0),
                 Tool::Downloads => (600.0, 560.0),
             };
             let id = egui::ViewportId::from_hash_of(("tool", name));
@@ -2375,7 +2515,7 @@ impl App {
             ui.separator();
             ui.add_space(4.0);
             for (i, (tool, name, color)) in TOOLS.iter().enumerate() {
-                if (in_dots(*tool) || *tool == Tool::Sounds) && menu_item(ui, name, if wins[i] { *color } else { TEXT }) {
+                if in_dots(*tool) && menu_item(ui, name, if wins[i] { *color } else { TEXT }) {
                     picked = Some(i);
                 }
             }
@@ -2518,7 +2658,7 @@ impl App {
     }
 
     fn open_private_tab(&mut self) {
-        self.tabs.push(Pane::private(&new_tab_url(&self.bcfg.home)));
+        self.tabs.push(Pane::private(incognito_url()));
         self.select_tab(self.tabs.len() - 1);
     }
 
@@ -2753,20 +2893,117 @@ impl App {
 
     // ── окно «Настройки» ──
 
+    /// Нужны ли изменения, которые вступают в силу только после перезапуска.
+    fn restart_needed(&self) -> bool {
+        let Some(f) = FROZEN.get() else { return false };
+        let c = &self.bcfg;
+        (c.doh.as_str(), c.doh_custom.as_str(), c.proxy.as_str(), c.ua.as_str(), c.lang.as_str())
+            != (f.doh.as_str(), f.doh_custom.as_str(), f.proxy.as_str(), f.ua.as_str(), f.lang.as_str())
+            || c.no_gpu != f.no_gpu
+            || c.webrtc_safe != f.webrtc_safe
+            || c.dark_sites != f.dark_sites
+            || c.privacy_signals != f.privacy_signals
+    }
+
     fn settings_ui(&mut self, ui: &mut egui::Ui) {
         header(ui, "Настройки", "Браузер Petal");
+        if self.restart_needed() {
+            card(ui, |ui| {
+                ui.label(RichText::new("Часть изменений вступит в силу после перезапуска Petal: закройте и откройте программу.").color(YELLOW));
+            });
+        }
+
         card(ui, |ui| {
+            section(ui, "Основные");
             ui.checkbox(&mut self.bcfg.restore, "Открывать при запуске вкладки, которые были при закрытии");
-            ui.add_space(4.0);
             ui.checkbox(&mut self.bcfg.save_history, "Записывать историю посещений");
-            ui.add_space(10.0);
+            ui.checkbox(&mut self.bcfg.clear_on_exit, "Стирать cookie и кэш сайтов при каждом запуске");
+            note(ui, "С этим пунктом из аккаунтов на сайтах придётся входить заново.");
+        });
+
+        card(ui, |ui| {
+            section(ui, "Поиск и новая вкладка");
+            let opts: Vec<(&str, &str)> = store::SEARCH_ENGINES.iter().map(|e| (e.0, e.1)).collect();
+            combo(ui, "search", "Поисковая система", &opts, &mut self.bcfg.search);
+            ui.add_space(6.0);
             ui.label(RichText::new("Страница новой вкладки").color(MUTED));
             ui.add(egui::TextEdit::singleline(&mut self.bcfg.home).desired_width(f32::INFINITY));
+            note(ui, "Адрес google.com или пустое поле открывают стартовую страницу Petal с закладками.");
         });
-        ui.add_space(10.0);
+
         card(ui, |ui| {
-            ui.label(RichText::new("Данные").size(17.0).color(TEXT));
+            section(ui, "Сеть и DNS");
+            let mut opts: Vec<(&str, &str)> = store::DOH_SERVERS.iter().map(|e| (e.0, e.1)).collect();
+            opts.push(("custom", "Свой сервер…"));
+            combo(ui, "doh", "DNS-сервер (защищённый, DoH)", &opts, &mut self.bcfg.doh);
+            if self.bcfg.doh == "custom" {
+                ui.add_space(4.0);
+                ui.add(egui::TextEdit::singleline(&mut self.bcfg.doh_custom).hint_text("https://dns.example/dns-query").desired_width(f32::INFINITY));
+                if store::doh_template(&self.bcfg).is_none() {
+                    ui.label(RichText::new("Адрес должен начинаться с https:// и не содержать пробелов.").size(13.0).color(RED));
+                }
+            }
+            note(ui, "Экспериментально: если ваша версия движка не поддерживает такую настройку, сайты откроются через обычный DNS Windows. Проверить, включился ли DoH, можно кнопкой ниже (страница проверки Cloudflare).");
+            if pill_button(ui, "Проверить DNS").clicked() {
+                self.open_tab("https://1.1.1.1/help");
+            }
+            ui.add_space(10.0);
+            ui.label(RichText::new("Прокси-сервер").color(MUTED));
+            ui.add(egui::TextEdit::singleline(&mut self.bcfg.proxy).hint_text("http://127.0.0.1:8080 или socks5://127.0.0.1:1080").desired_width(f32::INFINITY));
+            if !self.bcfg.proxy.trim().is_empty() && store::proxy_arg(&self.bcfg).is_empty() {
+                ui.label(RichText::new("Формат: http://адрес:порт или socks5://адрес:порт.").size(13.0).color(RED));
+            }
             ui.add_space(6.0);
+            combo(ui, "lang", "Язык сайтов", &[("", "Как в Windows"), ("ru", "Русский"), ("en", "English")], &mut self.bcfg.lang);
+        });
+
+        card(ui, |ui| {
+            section(ui, "Приватность");
+            ui.checkbox(&mut self.bcfg.privacy_signals, "Просить сайты не отслеживать меня (DNT и GPC)");
+            ui.checkbox(&mut self.bcfg.block_popups, "Блокировать всплывающие окна сайтов");
+            note(ui, "Из-за этого может не открыться вход через Google или VK: они работают во всплывающем окне.");
+            ui.checkbox(&mut self.bcfg.webrtc_safe, "Не раскрывать настоящий IP-адрес через WebRTC");
+            ui.add_space(6.0);
+            combo(
+                ui,
+                "ua",
+                "Как представляться сайтам",
+                &[("default", "Как есть (Edge)"), ("chrome", "Google Chrome"), ("firefox", "Firefox"), ("mobile", "Телефон Android")],
+                &mut self.bcfg.ua,
+            );
+        });
+
+        card(ui, |ui| {
+            section(ui, "Вид и скорость");
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Масштаб страниц").color(MUTED));
+                ui.add(egui::Slider::new(&mut self.bcfg.zoom, 50..=200).suffix("%").step_by(5.0));
+                if chip(ui, "100%").clicked() {
+                    self.bcfg.zoom = 100;
+                }
+            });
+            ui.checkbox(&mut self.bcfg.dark_sites, "Тёмная тема для сайтов, которые её поддерживают");
+            ui.checkbox(&mut self.bcfg.no_gpu, "Отключить аппаратное ускорение (если страницы мерцают или зависают)");
+        });
+
+        card(ui, |ui| {
+            section(ui, "Загрузки");
+            ui.label(RichText::new("Папка для скачанных файлов").color(MUTED));
+            ui.add(egui::TextEdit::singleline(&mut self.bcfg.dl_dir).hint_text("Пусто: обычная папка «Загрузки»").desired_width(f32::INFINITY));
+            ui.horizontal(|ui| {
+                if pill_button(ui, "Выбрать папку…").clicked() {
+                    if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                        self.bcfg.dl_dir = d.display().to_string();
+                    }
+                }
+                if !self.bcfg.dl_dir.is_empty() && pill_button(ui, "Сбросить").clicked() {
+                    self.bcfg.dl_dir.clear();
+                }
+            });
+        });
+
+        card(ui, |ui| {
+            section(ui, "Данные");
             ui.horizontal_wrapped(|ui| {
                 if pill_button(ui, "Очистить историю").clicked() {
                     self.history.clear();
@@ -2784,20 +3021,23 @@ impl App {
                     }
                     self.settings_status = "Данные сайтов очищены: из аккаунтов на сайтах придётся войти заново.".to_string();
                 }
+                if pill_button(ui, "Сбросить настройки").clicked() {
+                    self.bcfg = store::BrowserCfg::default();
+                    self.settings_status = "Настройки сброшены к исходным.".to_string();
+                }
             });
             if !self.settings_status.is_empty() {
                 ui.add_space(6.0);
                 ui.label(RichText::new(&self.settings_status).color(GREEN));
             }
             ui.add_space(6.0);
-            ui.label(
-                RichText::new(format!(
+            note(
+                ui,
+                &format!(
                     "Petal {}. Данные лежат в {}. Вкладки инкогнито ни в историю, ни в сессию не попадают.",
                     env!("CARGO_PKG_VERSION"),
                     std::env::current_dir().map(|d| d.display().to_string()).unwrap_or_default()
-                ))
-                    .size(13.0)
-                    .color(MUTED),
+                ),
             );
         });
     }
@@ -4070,6 +4310,19 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        sync_live(&self.bcfg);
+        if self.bcfg.search != self.applied_search {
+            write_pages(&self.bcfg.search);
+            self.applied_search = self.bcfg.search.clone();
+        }
+        if self.bcfg.zoom != self.applied_zoom {
+            for t in &self.tabs {
+                if let Some(b) = &t.view {
+                    b.set_zoom(self.bcfg.zoom);
+                }
+            }
+            self.applied_zoom = self.bcfg.zoom;
+        }
         self.drain_new_tabs();
         self.drain_downloads();
         self.audio_sync();
