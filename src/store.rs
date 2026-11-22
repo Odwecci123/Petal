@@ -158,7 +158,7 @@ impl Default for BrowserCfg {
             anim: true,
             glow: true,
             compact_tabs: false,
-            wallpaper: "aurora".to_string(),
+            wallpaper: "veil".to_string(),
             wallpaper_img: String::new(),
             clock: true,
             user_name: String::new(),
@@ -195,7 +195,10 @@ pub const THEMES: [(&str, &str, u32, u32); 7] = [
     ("mono", "Графит", 0xE5E7EB, 0x9CA3AF),
 ];
 
-pub const WALLPAPERS: [(&str, &str); 6] = [
+pub const WALLPAPERS: [(&str, &str); 9] = [
+    ("veil", "Тёмная вуаль (живой)"),
+    ("ether", "Жидкий эфир (живой)"),
+    ("tunnel", "Световой тоннель (живой)"),
     ("aurora", "Северное сияние"),
     ("gradient", "Градиент"),
     ("stars", "Звёздное небо"),

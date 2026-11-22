@@ -665,7 +665,22 @@ form:focus-within svg{stroke:color-mix(in srgb,var(--b) 50%,#fff)}
 #m input{height:44px;border-radius:14px;padding:0 16px;margin-bottom:10px;font-size:15px;background:#2b2b36}
 #m .r{display:flex;gap:10px;margin-top:6px}
 #m button{flex:1;height:42px;border:0;border-radius:14px;font-size:15px;cursor:pointer;color:#fff;background:#2f2f3c;transition:filter .2s}
-#m button.ok{background:linear-gradient(90deg,var(--a),var(--b))}#m button:hover{filter:brightness(1.2)}
+#m button:hover{filter:brightness(1.2)}
+@property --ang{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes spin{to{--ang:360deg}}
+.bg{position:fixed;inset:0;z-index:0;display:none;overflow:hidden}
+.bg canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+body.wp-veil .bg,body.wp-ether .bg,body.wp-tunnel .bg{display:block}
+#f{isolation:isolate}
+#f::before,#f::after,.t::before,#m button.ok::before,#m button.ok::after{content:"";position:absolute;pointer-events:none;background:conic-gradient(from var(--ang),transparent 0 48%,var(--a) 60%,#fff 71%,var(--b) 80%,transparent 94%);animation:spin 5s linear infinite}
+#f::before,.t::before,#m button.ok::before{inset:-1.5px;padding:1.5px;border-radius:29px;opacity:0;transition:opacity .35s;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+#f::after{inset:-2px;border-radius:29px;z-index:-1;filter:blur(16px);opacity:0;transition:opacity .45s}
+#f:hover::before{opacity:.6}#f:focus-within::before{opacity:1}#f:focus-within::after{opacity:.5}
+.t::before{border-radius:23px;animation-duration:3.6s}.t:hover::before{opacity:1}
+#m button.ok{position:relative;background:#000;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+#m button.ok::before{border-radius:14px;opacity:1;animation-duration:5.4s}
+#m button.ok::after{inset:-1px;border-radius:14px;filter:blur(6px);mix-blend-mode:plus-lighter;opacity:.65;animation-duration:5.4s;z-index:0;-webkit-mask:none;mask:none;padding:0;background:conic-gradient(from var(--ang),transparent 0 52%,var(--b) 70%,#fff 76%,transparent 92%)}
+.t{overflow:visible}
 body:not(.wp-aurora)::before,body:not(.wp-aurora)::after{display:none}
 body.wp-gradient{background:linear-gradient(135deg,color-mix(in srgb,var(--a) 30%,#131316),#131316 48%,color-mix(in srgb,var(--b) 34%,#131316));background-size:180% 180%;animation:gs 16s ease-in-out infinite alternate}
 @keyframes gs{to{background-position:100% 100%}}
@@ -682,12 +697,25 @@ body.wp-waves .waves{display:block}
 .clk .gr{margin-top:8px;font-size:18px;color:#c9c9d3}
 .clk .dt{font-size:14px;color:#8d8d98;margin-top:4px;text-transform:capitalize}
 body.noanim *,body.noanim::before,body.noanim::after{animation:none!important;transition:none!important}
-</style></head><body class="wp-@@WP@@ @@NOANIM@@"><canvas class="sky" id="sky"></canvas><div class="waves"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 50 Q150 10 300 50 T600 50 T900 50 T1200 50 V100 H0Z" fill="var(--a)" fill-opacity=".16"/></svg><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 60 Q150 25 300 60 T600 60 T900 60 T1200 60 V100 H0Z" fill="var(--b)" fill-opacity=".22"/></svg></div><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span id="nm">Petal</span></div>
+</style></head><body class="wp-@@WP@@ @@NOANIM@@"><div class="bg" id="bg"></div><canvas class="sky" id="sky"></canvas><div class="waves"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 50 Q150 10 300 50 T600 50 T900 50 T1200 50 V100 H0Z" fill="var(--a)" fill-opacity=".16"/></svg><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 60 Q150 25 300 60 T600 60 T900 60 T1200 60 V100 H0Z" fill="var(--b)" fill-opacity=".22"/></svg></div><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span id="nm">Petal</span></div>
 <div class="clk"><div class="tm" id="tm"></div><div class="gr" id="gr"></div><div class="dt" id="dt"></div></div>
 <form id="f"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9a9aa3" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
 <input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в @@ENGINE@@ или введите адрес"></form>
 <div class="tiles" id="tiles"></div></div>
 <div id="m"><form id="mf"><h3>Новая закладка</h3><input id="mn" placeholder="Название" autocomplete="off"><input id="mu" placeholder="Адрес сайта, например youtube.com" autocomplete="off" spellcheck="false"><div class="r"><button type="button" id="mc">Отмена</button><button class="ok" type="submit">Добавить</button></div></form></div>
+<script>@@BGJS@@</script>
+<script>
+(function(){var m=document.body.className.match(/wp-(veil|ether|tunnel)/);if(!m)return;
+try{if(!document.createElement('canvas').getContext('webgl2'))throw 0;}catch(e){document.body.className+=' wp-aurora';return;}
+var cs=getComputedStyle(document.documentElement),A=cs.getPropertyValue('--a').trim(),B=cs.getPropertyValue('--b').trim(),an=document.body.className.indexOf('noanim')<0;
+var host=document.getElementById('bg'),cv=document.createElement('canvas');host.appendChild(cv);
+try{
+if(m[1]==='veil')PetalBg.veil(host,cv,{color:A,speed:an?0.5:0,scale:1,rotation:0,flow:an?1:0,warp:0.12,variation:0,brightness:1,sheen:0.7,glow:0.45,grain:0.03,quality:0.5,mouseInteraction:true,mouseStrength:1,intro:an,fade:0,opacity:1,lightMode:false,paused:!an,dpr:undefined});
+else if(m[1]==='ether')PetalBg.ether(host,cv,{colors:[A,B,'#ffffff'],paletteKey:A+B,intensity:1,force:20,radius:100,persistence:0.75,viscosity:0,resolution:0.5,walls:false,clickBurst:true,autoDemo:an,autoSpeed:0.5,autoIntensity:2.2,autoResumeDelay:1000,intro:an,light:false,background:[0,0,0,0],maxRatio:2});
+else PetalBg.tunnel(host,cv,{cableColor:B,pulseColor:A,tunnelColor:B,tunnelOpacity:0.12,speed:an?0.1:0,flow:-1,pulseSpeed:2,pulseLength:0.28,pulseBlend:0.6,pulseWidth:1,pulseDensity:0.5,cableCount:56,thickness:0.35,rimWidth:0.15,waviness:0.3,sway:0.5,bend:0.4,size:1,centerX:0,centerY:0,glow:1,fadeNear:0.5,fadeFar:2,brightness:1,colorVariance:true,grain:false,grainIntensity:0.05,opacity:1,mouseInteraction:true,mouseStrength:0.1,clickSurge:true,intro:an,variation:0,lightMode:false,dpr:undefined});
+}catch(e){document.body.className+=' wp-aurora';}
+})();
+</script>
 <script>
 document.getElementById('f').addEventListener('submit',function(e){e.preventDefault();var t=document.getElementById('q').value.trim();if(!t)return;var u;
 if(/^https?:\/\//i.test(t))u=t;else if(!/\s/.test(t)&&t.indexOf('.')>0&&t.slice(-1)!=='.'&&t.indexOf('://')<0)u='https://'+t;else u='@@SEARCH@@'+encodeURIComponent(t);location.href=u;});
@@ -807,6 +835,7 @@ fn write_pages(c: &store::BrowserCfg) {
     let name: String = c.user_name.chars().filter(|ch| !matches!(ch, '\'' | '"' | '\\' | '<' | '>' | '&' | '\n' | '\r')).collect();
     let html = fill(NEWTAB_HTML)
         .replace("@@LOGO@@", &base64(include_bytes!("../assets/petal.png")))
+        .replace("@@BGJS@@", include_str!("../assets/bg.js"))
         .replace("</style>", &format!(":root{{--a:#{a:06x};--b:#{b:06x}}}{img}</style>"))
         .replace("@@WP@@", &c.wallpaper)
         .replace("@@NOANIM@@", if c.anim { "" } else { "noanim" })
@@ -1547,11 +1576,144 @@ fn glass_base(p: &egui::Painter, rect: egui::Rect, radius: f32, t: f32, o: f32) 
     let r = CornerRadius::same(radius as u8);
     let glow = t.max(o);
     p.rect_filled(rect.translate(Vec2::new(0.0, 2.0)).shrink(2.0), r, alpha(accent_b(), (26.0 * glow) as u8));
-    p.rect_filled(rect, r, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 10), Color32::from_rgba_unmultiplied(255, 255, 255, 26), t));
+    p.rect_filled(rect, r, mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
     if o > 0.01 {
-        grad_rrect(p, rect, radius, alpha(accent_a(), (70.0 * o) as u8), alpha(accent_b(), (80.0 * o) as u8), false);
+        grad_rrect(p, rect, radius, alpha(accent_a(), (50.0 * o) as u8), alpha(accent_b(), (60.0 * o) as u8), false);
     }
-    p.rect_stroke(rect, r, Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 20), alpha(link(), 190), glow)), egui::StrokeKind::Inside);
+    p.rect_stroke(rect, r, Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 28), alpha(link(), 190), glow)), egui::StrokeKind::Inside);
+}
+
+// ───────────────────────── Бегущий свет по ободку (как у GlowButton) ─────────────────────────
+
+/// Длина ободка скруглённого прямоугольника.
+fn rim_len(rect: egui::Rect, r: f32) -> f32 {
+    2.0 * (rect.width() - 2.0 * r).max(0.0) + 2.0 * (rect.height() - 2.0 * r).max(0.0) + std::f32::consts::TAU * r
+}
+
+/// Точка на ободке: s отсчитывается по часовой стрелке от середины верхней стороны.
+fn rim_point(rect: egui::Rect, r: f32, s: f32) -> egui::Pos2 {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let lx = (rect.width() - 2.0 * r).max(0.0);
+    let ly = (rect.height() - 2.0 * r).max(0.0);
+    let arc = FRAC_PI_2 * r;
+    let total = rim_len(rect, r);
+    let mut s = s.rem_euclid(total);
+    let (l, t, rt, b) = (rect.left(), rect.top(), rect.right(), rect.bottom());
+    let c = rect.center().x;
+    let pieces = [lx / 2.0, arc, ly, arc, lx, arc, ly, arc, lx / 2.0];
+    for (k, len) in pieces.iter().enumerate() {
+        if s <= *len || k == pieces.len() - 1 {
+            return match k {
+                0 => egui::pos2(c + s, t),
+                1 => egui::pos2(rt - r, t + r) + Vec2::angled(-FRAC_PI_2 + s / r) * r,
+                2 => egui::pos2(rt, t + r + s),
+                3 => egui::pos2(rt - r, b - r) + Vec2::angled(s / r) * r,
+                4 => egui::pos2(rt - r - s, b),
+                5 => egui::pos2(l + r, b - r) + Vec2::angled(FRAC_PI_2 + s / r) * r,
+                6 => egui::pos2(l, b - r - s),
+                7 => egui::pos2(l + r, t + r) + Vec2::angled(PI + s / r) * r,
+                _ => egui::pos2(l + r + s, t),
+            };
+        }
+        s -= len;
+    }
+    rect.center_top()
+}
+
+/// Положение света на круге: два оборота за цикл с небольшим «разгоном», как у GlowButton.
+fn ring_phase(x: f32) -> f32 {
+    let x = x.rem_euclid(1.0);
+    2.0 * x + 0.07 * (std::f32::consts::TAU * 2.0 * x).sin()
+}
+
+/// Свет по ободку: яркая белая «искра» с хвостом и цветной огонёк впереди, три слоя (ореол, свечение, ядро).
+fn glow_ring(p: &egui::Painter, rect: egui::Rect, radius: f32, phase: f32, k: f32) {
+    if k < 0.02 {
+        return;
+    }
+    let r = radius.min(rect.height() / 2.0).min(rect.width() / 2.0);
+    let total = rim_len(rect, r);
+    let h = rect.height().max(1.0);
+    let n = ((total / 1.4) as usize).clamp(40, 360);
+    let head = phase.rem_euclid(1.0) * total;
+    let lead = total * 0.27;
+    let wrap = |d: f32| {
+        let d = d.rem_euclid(total);
+        if d > total / 2.0 { d - total } else { d }
+    };
+    let (ca, cb) = (accent_a(), accent_b());
+    let mut pts = Vec::with_capacity(n + 1);
+    let mut cols: Vec<[f32; 4]> = Vec::with_capacity(n + 1);
+    for i in 0..=n {
+        let s = i as f32 / n as f32 * total;
+        pts.push(rim_point(rect, r, s));
+        let dw = wrap(s - head) / h;
+        let w = if dw < 0.0 { (dw / 0.85).exp() } else { (-(dw / 0.16).powi(2)).exp() };
+        let dc = wrap(s - head - lead) / h;
+        let c = if dc < 0.0 { (dc / 1.5).exp() } else { (-(dc / 0.4).powi(2)).exp() };
+        let f = (dc / 1.4 + 0.5).clamp(0.0, 1.0);
+        let tint = [ca.r() as f32 + (cb.r() as f32 - ca.r() as f32) * f, ca.g() as f32 + (cb.g() as f32 - ca.g() as f32) * f, ca.b() as f32 + (cb.b() as f32 - ca.b() as f32) * f];
+        let rgb = [0, 1, 2].map(|j| (255.0 * w * 0.95 + tint[j] * c * 1.15).min(255.0) * k);
+        let a = rgb[0].max(rgb[1]).max(rgb[2]);
+        cols.push([rgb[0], rgb[1], rgb[2], a]);
+    }
+    // Кружки вместо отрезков: слои смыкаются без «зубцов».
+    for (rad, mult) in [(3.4_f32, 0.15_f32), (1.9, 0.36), (0.85, 1.0)] {
+        for i in 0..=n {
+            let c = cols[i];
+            let m = |j: usize| (c[j] * mult).clamp(0.0, 255.0) as u8;
+            if m(3) < 3 {
+                continue;
+            }
+            p.circle_filled(pts[i], rad, Color32::from_rgba_premultiplied(m(0), m(1), m(2), m(3)));
+        }
+    }
+}
+
+/// Режим «при наведении»: свет стартует сверху и бежит, пока курсор на кнопке; t — плавная степень наведения.
+fn hover_ring(ui: &egui::Ui, id: egui::Id, rect: egui::Rect, radius: f32, t: f32) {
+    if t < 0.01 {
+        ui.ctx().data_mut(|d| d.remove::<f32>(id.with("ring0")));
+        return;
+    }
+    let now = ui.input(|i| i.time) as f32;
+    let start: f32 = ui.ctx().data_mut(|d| *d.get_temp_mut_or::<f32>(id.with("ring0"), now));
+    if ANIM_ON.load(Ordering::Relaxed) {
+        ui.ctx().request_repaint();
+        glow_ring(ui.painter(), rect.shrink(0.5), radius, ring_phase((now - start) / 3.4), t);
+    } else {
+        glow_ring(ui.painter(), rect.shrink(0.5), radius, 0.0, t * 0.7);
+    }
+}
+
+const BTN_BLACK: Color32 = Color32::from_rgb(6, 6, 9);
+
+/// Жирный текст: в шрифте egui нет жирного начертания, поэтому буквы рисуются дважды с крошечным сдвигом.
+fn bold_text(p: &egui::Painter, pos: egui::Pos2, align: Align2, text: &str, size: f32, color: Color32) {
+    for dx in [-0.4_f32, 0.4] {
+        p.text(pos + Vec2::new(dx, 0.0), align, text, FontId::proportional(size), color);
+    }
+}
+
+/// Украшение чёрной кнопки: свет по ободку идёт всегда (у каждой кнопки в своей фазе), при наведении ярче.
+fn deco_ring(ui: &egui::Ui, id: egui::Id, rect: egui::Rect, radius: f32, t: f32) {
+    let anim = ANIM_ON.load(Ordering::Relaxed);
+    let now = if anim { ui.input(|i| i.time) as f32 } else { 0.0 };
+    if anim {
+        ui.ctx().request_repaint();
+    }
+    let off = (id.value() % 997) as f32 / 997.0;
+    glow_ring(ui.painter(), rect.shrink(0.5), radius, ring_phase(now / 5.4 + off), 0.42 + 0.58 * t);
+}
+
+/// Режим «всегда»: свет ходит по кнопке сам.
+fn loop_ring(ui: &egui::Ui, rect: egui::Rect, radius: f32, k: f32) {
+    let anim = ANIM_ON.load(Ordering::Relaxed);
+    let now = if anim { ui.input(|i| i.time) as f32 } else { 0.0 };
+    if anim {
+        ui.ctx().request_repaint();
+    }
+    glow_ring(ui.painter(), rect.shrink(0.5), radius, ring_phase(now / 5.4), k);
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Response {
@@ -1576,8 +1738,10 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
     let p = ui.painter();
     if enabled {
         glass_base(p, rect, 18.0, t, 0.0);
+        deco_ring(ui, resp.id, rect, 18.0, t);
     } else {
-        p.rect_stroke(rect, CornerRadius::same(18), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 10)), egui::StrokeKind::Inside);
+        p.rect_filled(rect, CornerRadius::same(18), BTN_BLACK);
+        p.rect_stroke(rect, CornerRadius::same(18), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 14)), egui::StrokeKind::Inside);
     }
     let c = rect.center();
     let st = Stroke::new(1.9_f32, color);
@@ -1623,8 +1787,9 @@ fn downloads_button(ui: &mut egui::Ui, active: usize, open: bool) -> egui::Respo
     let busy = active > 0;
     let p = ui.painter();
     let lit_up = t.max(o);
-    p.rect_filled(rect, CornerRadius::same(13), Color32::from_rgba_unmultiplied(255, 255, 255, (9.0 + 14.0 * lit_up) as u8));
+    p.rect_filled(rect, CornerRadius::same(13), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), lit_up));
     p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 18), alpha(accent_b(), 150), lit_up)), egui::StrokeKind::Inside);
+    deco_ring(ui, resp.id, rect, 13.0, lit_up);
     let bob = if busy { ((time * 5.0).sin() * 0.5 + 0.5) * 3.5 } else { 1.5 * t };
     let ink = mix(MUTED, mix(TEXT, link(), o), lit_up.max(if busy { 1.0 } else { 0.0 }));
     let c = rect.left_center() + Vec2::new(24.0, -1.0);
@@ -1635,7 +1800,7 @@ fn downloads_button(ui: &mut egui::Ui, active: usize, open: bool) -> egui::Respo
     p.line_segment([c + Vec2::new(-7.5, 7.5), c + Vec2::new(7.5, 7.5)], st);
     p.line_segment([c + Vec2::new(-7.5, 3.0), c + Vec2::new(-7.5, 7.5)], st);
     p.line_segment([c + Vec2::new(7.5, 3.0), c + Vec2::new(7.5, 7.5)], st);
-    p.text(rect.left_center() + Vec2::new(46.0, 0.0), Align2::LEFT_CENTER, "Загрузки", FontId::proportional(14.5), mix(Color32::from_rgb(190, 192, 204), TEXT, lit_up));
+    bold_text(p, rect.left_center() + Vec2::new(46.0, 0.0), Align2::LEFT_CENTER, "Загрузки", 14.5, mix(Color32::from_rgb(225, 226, 236), Color32::WHITE, lit_up));
     if busy {
         // Счётчик активных загрузок и бегущая полоска по нижней кромке.
         let b = rect.right_center() - Vec2::new(22.0, 0.0);
@@ -1658,10 +1823,9 @@ fn new_tab_row(ui: &mut egui::Ui) -> egui::Response {
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let p = ui.painter();
-    if t > 0.01 {
-        grad_rrect(p, rect, 12.0, alpha(accent_a(), (46.0 * t) as u8), alpha(accent_b(), (46.0 * t) as u8), false);
-    }
-    p.rect_stroke(rect, CornerRadius::same(12), Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 22), alpha(accent_b(), 170), t)), egui::StrokeKind::Inside);
+    p.rect_filled(rect, CornerRadius::same(12), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
+    p.rect_stroke(rect, CornerRadius::same(12), Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 28), alpha(accent_b(), 170), t)), egui::StrokeKind::Inside);
+    deco_ring(ui, resp.id, rect, 12.0, t);
     let c = rect.left_center() + Vec2::new(22.0, 0.0);
     let ink = mix(MUTED, Color32::WHITE, t);
     let st = Stroke::new(1.8_f32, ink);
@@ -1672,7 +1836,7 @@ fn new_tab_row(ui: &mut egui::Ui) -> egui::Response {
         let rot = |v: Vec2| Vec2::new(v.x * cs - v.y * sn, v.x * sn + v.y * cs);
         p.line_segment([c + rot(a), c + rot(b)], st);
     }
-    p.text(rect.left_center() + Vec2::new(42.0, 0.0), Align2::LEFT_CENTER, "Новая вкладка", FontId::proportional(14.5), mix(Color32::from_rgb(190, 192, 204), Color32::WHITE, t));
+    bold_text(p, rect.left_center() + Vec2::new(42.0, 0.0), Align2::LEFT_CENTER, "Новая вкладка", 14.5, mix(Color32::from_rgb(225, 226, 236), Color32::WHITE, t));
     resp
 }
 
@@ -1705,6 +1869,7 @@ fn dots_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
     let rect = if resp.is_pointer_button_down_on() { rect.shrink(1.5) } else { rect };
     let p = ui.painter();
     glass_base(p, rect, 13.0, t, o);
+    deco_ring(ui, resp.id, rect, 13.0, t.max(o * 0.6));
     let ink = mix(mix(Color32::from_rgb(190, 192, 206), Color32::WHITE, t), Color32::WHITE, o);
     let c = rect.center();
     let st = Stroke::new(1.8_f32, ink);
@@ -1725,14 +1890,16 @@ fn menu_item(ui: &mut egui::Ui, text: &str, color: Color32) -> bool {
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(13), Color32::from_rgba_unmultiplied(255, 255, 255, (18.0 * t) as u8));
+    p.rect_filled(rect, CornerRadius::same(13), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
+    p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (22.0 + 60.0 * t) as u8)), egui::StrokeKind::Inside);
+    deco_ring(ui, resp.id, rect, 13.0, t);
     // Цветная «пуговка» с первой буквой.
     let tint = if color == TEXT { link() } else { color };
     let b = egui::Rect::from_center_size(rect.left_center() + Vec2::new(22.0, 0.0), Vec2::splat(28.0 + 2.0 * t));
     p.rect_filled(b, CornerRadius::same(9), Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), (38.0 + 40.0 * t) as u8));
     let letter: String = text.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
     p.text(b.center(), Align2::CENTER_CENTER, letter, FontId::proportional(14.0), tint);
-    p.text(rect.left_center() + Vec2::new(44.0 + 3.0 * t, 0.0), Align2::LEFT_CENTER, text, FontId::proportional(15.0), mix(color, Color32::WHITE, 0.35 * t));
+    bold_text(p, rect.left_center() + Vec2::new(44.0 + 3.0 * t, 0.0), Align2::LEFT_CENTER, text, 15.0, mix(color, Color32::WHITE, 0.35 * t));
     resp.clicked()
 }
 
@@ -1759,9 +1926,10 @@ fn pill_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(13), mix(FIELD_BG, Color32::from_rgb(64, 62, 92), t));
+    p.rect_filled(rect, CornerRadius::same(13), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
     p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(160, 150, 255, (20.0 + 90.0 * t) as u8)), egui::StrokeKind::Inside);
-    p.galley(rect.center() - galley.size() / 2.0, galley, TEXT);
+    deco_ring(ui, resp.id, rect, 13.0, t);
+    bold_text(p, rect.center(), Align2::CENTER_CENTER, text, 15.0, Color32::WHITE);
     resp
 }
 
@@ -1772,17 +1940,22 @@ fn chip(ui: &mut egui::Ui, text: &str) -> egui::Response {
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(10), mix(Color32::from_rgb(46, 46, 62), Color32::from_rgb(76, 72, 120), t));
-    p.galley(rect.center() - galley.size() / 2.0, galley, TEXT);
+    p.rect_filled(rect, CornerRadius::same(10), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
+    p.rect_stroke(rect, CornerRadius::same(10), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (30.0 + 90.0 * t) as u8)), egui::StrokeKind::Inside);
+    drop(galley);
+    bold_text(p, rect.center(), Align2::CENTER_CENTER, text, 13.0, Color32::WHITE);
     resp
 }
 
 fn accent_paint(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, text: &str) {
     let t = hover_t(ui, resp);
     let p = ui.painter();
-    p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), alpha(accent_b(), (24.0 + 46.0 * t) as u8));
-    grad_rrect(p, rect, 14.0, mix(accent_a(), lit(accent_a()), t), mix(accent_b(), lit(accent_b()), t), false);
-    p.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(15.0), Color32::WHITE);
+    p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), alpha(accent_b(), (18.0 + 46.0 * t) as u8));
+    // Тёмная кнопка с лёгким отсветом темы изнутри; по ободку бежит свет.
+    p.rect_filled(rect, CornerRadius::same(14), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
+    p.rect_stroke(rect, CornerRadius::same(14), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 22)), egui::StrokeKind::Inside);
+    loop_ring(ui, rect, 14.0, 0.8 + 0.2 * t);
+    bold_text(p, rect.center(), Align2::CENTER_CENTER, text, 15.0, Color32::WHITE);
 }
 
 /// Градиентная кнопка по ширине текста.
@@ -2562,6 +2735,9 @@ impl App {
                 go = Some(self.addr.clone());
             }
         });
+        if glow > 0.02 {
+            loop_ring(ui, field.response.rect, 20.0, glow);
+        }
         // Лупа слева в строке: при фокусе подсвечивается цветом темы.
         {
             let c = field.response.rect.left_center() + Vec2::new(19.0, -1.0);
@@ -2660,6 +2836,9 @@ impl App {
                             // Активная вкладка: стеклянная карточка с мягким градиентом темы и тонкой обводкой.
                             grad_rrect(p, row, 12.0, alpha(accent_a(), (52.0 * at) as u8), alpha(accent_b(), (60.0 * at) as u8), false);
                             p.rect_stroke(row, CornerRadius::same(12), Stroke::new(1.0_f32, alpha(accent_b(), (120.0 * at) as u8)), egui::StrokeKind::Inside);
+                            loop_ring(ui, row, 12.0, 0.5 * at);
+                        } else {
+                            hover_ring(ui, resp.id, row, 12.0, ht);
                         }
                         // Цветной кружок с первой буквой сайта.
                         let label = tab.label();
