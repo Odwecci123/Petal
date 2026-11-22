@@ -294,7 +294,14 @@ fn fmt_num(v: f64) -> String {
 
 const WHEEL_FILE: &str = "helper_wheel.txt";
 const WHEEL_DEFAULT: &str = "Вариант 1\nВариант 2\nВариант 3\nВариант 4";
-const WHEEL_PALETTE: [Color32; 6] = [LINK, RED, YELLOW, GREEN, PURPLE, ORANGE];
+const WHEEL_PALETTE: [Color32; 6] = [
+    Color32::from_rgb(244, 114, 182),
+    Color32::from_rgb(167, 139, 250),
+    Color32::from_rgb(96, 165, 250),
+    Color32::from_rgb(52, 211, 153),
+    Color32::from_rgb(251, 191, 36),
+    Color32::from_rgb(251, 113, 133),
+];
 
 /// Варианты колеса: каждая непустая строка текста.
 fn wheel_items(text: &str) -> Vec<String> {
@@ -320,13 +327,61 @@ fn sector_color(i: usize, n: usize) -> Color32 {
     }
 }
 
+/// Грань кубика с точками.
+fn draw_die(ui: &mut egui::Ui, n: u8, size: f32, slot: f32) {
+    let (slot_rect, _) = ui.allocate_exact_size(Vec2::new(slot, slot), Sense::hover());
+    let rect = egui::Rect::from_center_size(slot_rect.center(), Vec2::splat(size));
+    let p = ui.painter();
+    p.rect_filled(rect.translate(Vec2::new(0.0, 5.0)), CornerRadius::same((size * 0.22) as u8), Color32::from_rgba_unmultiplied(236, 72, 153, 60));
+    grad_rrect(p, rect, size * 0.22, Color32::from_rgb(250, 250, 255), Color32::from_rgb(214, 208, 240), true);
+    let d = size * 0.25;
+    let c = rect.center();
+    let spots: &[(f32, f32)] = match n {
+        1 => &[(0.0, 0.0)],
+        2 => &[(-1.0, -1.0), (1.0, 1.0)],
+        3 => &[(-1.0, -1.0), (0.0, 0.0), (1.0, 1.0)],
+        4 => &[(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)],
+        5 => &[(-1.0, -1.0), (1.0, -1.0), (0.0, 0.0), (-1.0, 1.0), (1.0, 1.0)],
+        _ => &[(-1.0, -1.0), (1.0, -1.0), (-1.0, 0.0), (1.0, 0.0), (-1.0, 1.0), (1.0, 1.0)],
+    };
+    for (x, y) in spots {
+        p.circle_filled(c + Vec2::new(*x * d, *y * d), size * 0.085, Color32::from_rgb(70, 50, 140));
+    }
+}
+
+/// Монетка: золотой круг с надписью.
+fn draw_coin(ui: &mut egui::Ui, heads: bool, size: f32, slot: f32) {
+    let (slot_rect, _) = ui.allocate_exact_size(Vec2::new(slot, slot), Sense::hover());
+    let c = slot_rect.center();
+    let p = ui.painter();
+    let r = size / 2.0;
+    p.circle_filled(c + Vec2::new(0.0, 5.0), r, Color32::from_rgba_unmultiplied(250, 204, 21, 50));
+    p.circle_filled(c, r, Color32::from_rgb(202, 138, 4));
+    p.circle_filled(c, r * 0.92, Color32::from_rgb(250, 204, 21));
+    p.circle_stroke(c, r * 0.72, Stroke::new(2.0_f32, Color32::from_rgb(202, 138, 4)));
+    p.text(c, Align2::CENTER_CENTER, if heads { "Орёл" } else { "Решка" }, FontId::proportional((size * 0.22).max(6.0)), Color32::from_rgb(120, 70, 0));
+}
+
 /// Рисует колесо со стрелкой. Возвращает true, если нажали на центр.
 fn draw_wheel(ui: &mut egui::Ui, items: &[String], angle: f64, size: f32) -> bool {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-    let painter = ui.painter_at(rect);
+    let painter = ui.painter_at(rect.expand(8.0));
     let c = rect.center();
-    let r = size / 2.0 - 18.0;
+    let r = size / 2.0 - 24.0;
     let n = items.len();
+    let time = ui.input(|i| i.time);
+
+    // Тень и ободок с лампочками.
+    painter.circle_filled(c + Vec2::new(0.0, 6.0), r + 16.0, Color32::from_rgba_unmultiplied(0, 0, 0, 90));
+    painter.circle_filled(c, r + 14.0, Color32::from_rgb(40, 34, 70));
+    painter.circle_stroke(c, r + 14.0, Stroke::new(2.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 40)));
+    let spinning_now = ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("wheel_spinning"))).unwrap_or(false);
+    for k in 0..24 {
+        let a = TAU as f32 * k as f32 / 24.0;
+        let on = if spinning_now { ((time * 8.0) as i64 + k as i64) % 2 == 0 } else { k % 2 == 0 };
+        let col = if on { Color32::from_rgb(255, 220, 120) } else { Color32::from_rgb(120, 90, 160) };
+        painter.circle_filled(c + Vec2::new(a.cos(), a.sin()) * (r + 7.0), 2.6, col);
+    }
 
     if n == 0 {
         painter.circle(c, r, FIELD_BG, Stroke::new(2.0_f32, CARD_BG));
@@ -344,52 +399,55 @@ fn draw_wheel(ui: &mut egui::Ui, items: &[String], angle: f64, size: f32) -> boo
                 let a = a0 + step * k as f64 / segs as f64;
                 pts.push(c + Vec2::new(a.cos() as f32, a.sin() as f32) * r);
             }
-            painter.add(egui::Shape::convex_polygon(pts, sector_color(i, n), Stroke::new(2.0_f32, BG)));
+            painter.add(egui::Shape::convex_polygon(pts, sector_color(i, n), Stroke::new(1.5_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 120))));
         }
     }
 
     // Подписи вдоль радиуса. Слева текст переворачиваем, чтобы он не шёл вверх ногами.
+    let ink = Color32::from_rgb(28, 24, 44);
     if (1..=36).contains(&n) {
-        let font = FontId::proportional(if n <= 8 { 16.0 } else if n <= 16 { 13.0 } else { 11.0 });
+        let font = FontId::proportional(if n <= 8 { 17.0 } else if n <= 16 { 13.0 } else { 11.0 });
         let step = TAU / n as f64;
         for (i, text) in items.iter().enumerate() {
             let mid = angle + step * (i as f64 + 0.5);
             let (cos, sin) = (mid.cos() as f32, mid.sin() as f32);
             let dir = Vec2::new(cos, sin);
-            let mut job = egui::text::LayoutJob::simple(text.clone(), font.clone(), BG, r * 0.7);
+            let mut job = egui::text::LayoutJob::simple(text.clone(), font.clone(), ink, r * 0.62);
             job.wrap.max_rows = 1;
             job.wrap.break_anywhere = true;
             let galley = painter.layout_job(job);
             let (theta, start) = if cos >= 0.0 {
-                (mid as f32, c + dir * (r * 0.24))
+                (mid as f32, c + dir * (r * 0.28))
             } else {
                 (mid as f32 + std::f32::consts::PI, c + dir * (r * 0.94))
             };
             let y_axis = Vec2::new(-theta.sin(), theta.cos());
             let pos = start - y_axis * (galley.size().y / 2.0);
-            painter.add(egui::epaint::TextShape::new(pos, galley, BG).with_angle(theta));
+            painter.add(egui::epaint::TextShape::new(pos, galley, ink).with_angle(theta));
         }
     }
 
-    // Стрелка сверху.
-    painter.add(egui::Shape::convex_polygon(
-        vec![
-            egui::pos2(c.x - 13.0, rect.top() + 2.0),
-            egui::pos2(c.x + 13.0, rect.top() + 2.0),
-            egui::pos2(c.x, rect.top() + 32.0),
-        ],
-        TEXT,
-        Stroke::new(2.0_f32, BG),
-    ));
+    // Центр: кнопка «Крутить».
+    let hub = egui::Rect::from_center_size(c, Vec2::splat(76.0));
+    let resp = ui.interact(hub, ui.id().with("wheel_hub"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+    let t = hover_t(ui, &resp);
+    painter.circle_filled(c, 38.0 + 3.0 * t, Color32::from_rgba_unmultiplied(236, 72, 153, (50.0 + 60.0 * t) as u8));
+    painter.circle_filled(c, 33.0 + 2.0 * t, mix(Color32::from_rgb(70, 44, 120), ACCENT_B, t));
+    painter.circle_stroke(c, 33.0 + 2.0 * t, Stroke::new(2.5_f32, Color32::WHITE));
+    painter.text(c, Align2::CENTER_CENTER, "Крутить", FontId::proportional(13.0), Color32::WHITE);
 
-    // Кнопка в центре.
-    let hub = egui::Rect::from_center_size(c, Vec2::splat(64.0));
-    let resp = ui
-        .interact(hub, ui.id().with("wheel_hub"), Sense::click())
-        .on_hover_cursor(CursorIcon::PointingHand);
-    let hub_fill = if resp.hovered() { Color32::from_rgb(63, 64, 68) } else { BG };
-    painter.circle(c, 32.0, hub_fill, Stroke::new(3.0_f32, TEXT));
-    painter.text(c, Align2::CENTER_CENTER, "Крутить", FontId::proportional(13.0), TEXT);
+    // Стрелка сверху.
+    let tip = egui::pos2(c.x, rect.top() + 36.0);
+    painter.add(egui::Shape::convex_polygon(
+        vec![egui::pos2(c.x - 12.0, rect.top() + 9.0), egui::pos2(c.x + 16.0, rect.top() + 9.0), tip + Vec2::new(2.0, 3.0)],
+        Color32::from_rgba_unmultiplied(0, 0, 0, 90),
+        Stroke::NONE,
+    ));
+    painter.add(egui::Shape::convex_polygon(
+        vec![egui::pos2(c.x - 14.0, rect.top() + 6.0), egui::pos2(c.x + 14.0, rect.top() + 6.0), tip],
+        ACCENT_A,
+        Stroke::new(2.5_f32, Color32::WHITE),
+    ));
     resp.clicked()
 }
 
@@ -404,7 +462,6 @@ enum DlEvent {
 
 static DL_EVENTS: Mutex<Vec<DlEvent>> = Mutex::new(Vec::new());
 
-const HOME_URL: &str = "https://www.google.com/";
 
 fn url_encode(s: &str) -> String {
     let mut out = String::new();
@@ -445,13 +502,54 @@ input:hover{background:rgba(52,52,60,.9)}
 input:focus{background:rgba(52,52,60,.95);box-shadow:0 0 0 2px #7a7cff,0 8px 30px rgba(122,124,255,.28);transform:translateY(-1px)}
 svg{position:absolute;left:21px;top:16px;transition:stroke .25s}
 form:focus-within svg{stroke:#b9bbff}
+.tiles{position:relative;z-index:1;display:flex;flex-wrap:wrap;justify-content:center;gap:14px;width:min(850px,86vw);margin-top:44px;animation:up .8s .3s cubic-bezier(.2,.8,.2,1) both}
+.t{position:relative;width:150px;height:104px;border-radius:22px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#e8e8f0;text-decoration:none;font-size:14px;cursor:pointer;transition:transform .2s,background .2s,box-shadow .2s;animation:pop .5s both}
+.t:hover{transform:translateY(-4px);background:rgba(255,255,255,.11);box-shadow:0 12px 30px rgba(0,0,0,.35),0 0 0 1px rgba(160,150,255,.35)}
+.t img,.t .ph{width:40px;height:40px;border-radius:11px;object-fit:cover}
+.t .ph{display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;background:linear-gradient(135deg,#ec4899,#7c5cff)}
+.t span{max-width:126px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t .x{position:absolute;right:7px;top:7px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;font-size:14px;line-height:22px;text-align:center;opacity:0;transition:opacity .2s,background .2s}
+.t:hover .x{opacity:1}.t .x:hover{background:#ec4899}
+.t.add{border-style:dashed;color:#9a9aa3}
+.t.add .pl{width:40px;height:40px;border-radius:11px;border:2px dashed rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:24px;color:#b9bbff;transition:transform .3s}
+.t.add:hover .pl{transform:rotate(90deg)}
+@keyframes pop{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
+#m{position:fixed;inset:0;z-index:5;background:rgba(10,10,14,.6);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center}
+#m.on{display:flex;animation:fade .2s}
+@keyframes fade{from{opacity:0}}
+#m form{width:340px;background:#202029;border:1px solid rgba(255,255,255,.1);border-radius:22px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.5);animation:pop .25s both}
+#m h3{margin:0 0 14px;font-size:18px}
+#m input{height:44px;border-radius:14px;padding:0 16px;margin-bottom:10px;font-size:15px;background:#2b2b36}
+#m .r{display:flex;gap:10px;margin-top:6px}
+#m button{flex:1;height:42px;border:0;border-radius:14px;font-size:15px;cursor:pointer;color:#fff;background:#2f2f3c;transition:filter .2s}
+#m button.ok{background:linear-gradient(90deg,#ec4899,#7c5cff)}#m button:hover{filter:brightness(1.2)}
 </style></head><body><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span>Petal</span></div>
 <form id="f"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9a9aa3" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
-<input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в Google или введите адрес"></form></div>
+<input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в Google или введите адрес"></form>
+<div class="tiles" id="tiles"></div></div>
+<div id="m"><form id="mf"><h3>Новая закладка</h3><input id="mn" placeholder="Название" autocomplete="off"><input id="mu" placeholder="Адрес сайта, например youtube.com" autocomplete="off" spellcheck="false"><div class="r"><button type="button" id="mc">Отмена</button><button class="ok" type="submit">Добавить</button></div></form></div>
 <script>
 document.getElementById('f').addEventListener('submit',function(e){e.preventDefault();var t=document.getElementById('q').value.trim();if(!t)return;var u;
 if(/^https?:\/\//i.test(t))u=t;else if(!/\s/.test(t)&&t.indexOf('.')>0&&t.slice(-1)!=='.'&&t.indexOf('://')<0)u='https://'+t;else u='https://www.google.com/search?q='+encodeURIComponent(t);location.href=u;});
 document.getElementById('q').focus();
+var K='petal_bookmarks',D=[{n:'YouTube',u:'https://www.youtube.com/'},{n:'ВКонтакте',u:'https://vk.com/'},{n:'Яндекс',u:'https://ya.ru/'},{n:'Google',u:'https://www.google.com/'}];
+function load(){try{var v=JSON.parse(localStorage.getItem(K));if(Array.isArray(v))return v;}catch(e){}return D.slice();}
+function save(v){try{localStorage.setItem(K,JSON.stringify(v));}catch(e){}}
+var B=load(),T=document.getElementById('tiles'),M=document.getElementById('m');
+function host(u){try{return new URL(u).hostname;}catch(e){return '';}}
+function draw(){T.textContent='';B.forEach(function(b,i){var a=document.createElement('a');a.className='t';a.href=b.u;a.style.animationDelay=(i*.05)+'s';
+var h=host(b.u),im=document.createElement('img');im.src='https://www.google.com/s2/favicons?domain='+h+'&sz=64';im.alt='';
+im.onerror=function(){var d=document.createElement('div');d.className='ph';d.textContent=(b.n||h||'?').charAt(0).toUpperCase();im.replaceWith(d);};a.appendChild(im);
+var sp=document.createElement('span');sp.textContent=b.n||h;a.appendChild(sp);
+var x=document.createElement('div');x.className='x';x.textContent='\u00d7';x.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();B.splice(i,1);save(B);draw();});a.appendChild(x);T.appendChild(a);});
+var ad=document.createElement('div');ad.className='t add';ad.style.animationDelay=(B.length*.05)+'s';var pl=document.createElement('div');pl.className='pl';pl.textContent='+';ad.appendChild(pl);var sp2=document.createElement('span');sp2.textContent='Добавить';ad.appendChild(sp2);ad.addEventListener('click',openM);T.appendChild(ad);}
+function openM(){M.className='on';document.getElementById('mn').value='';document.getElementById('mu').value='';document.getElementById('mn').focus();}
+function closeM(){M.className='';document.getElementById('q').focus();}
+document.getElementById('mc').addEventListener('click',closeM);
+M.addEventListener('mousedown',function(e){if(e.target===M)closeM();});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeM();});
+document.getElementById('mf').addEventListener('submit',function(e){e.preventDefault();var u=document.getElementById('mu').value.trim(),n=document.getElementById('mn').value.trim();if(!u)return;if(!/^https?:\/\//i.test(u))u='https://'+u;B.push({n:n||host(u).replace(/^www\./,''),u:u});save(B);draw();closeM();});
+draw();
 </script></body></html>"##;
 
 fn base64(data: &[u8]) -> String {
@@ -700,6 +798,19 @@ fn tab_label(title: &str, url: &str) -> String {
         return t.to_string();
     }
     host_of(url).unwrap_or_else(|| "Новая вкладка".to_string())
+}
+
+/// Значок сайта: берём из сервиса значков по домену. Пока грузится или недоступен, рисуется буква.
+fn favicon(ctx: &egui::Context, url: &str) -> Option<egui::load::SizedTexture> {
+    let host = host_of(url)?;
+    if host.contains(':') || !host.contains('.') {
+        return None;
+    }
+    let uri = format!("https://www.google.com/s2/favicons?domain={host}&sz=64");
+    match ctx.try_load_texture(&uri, egui::TextureOptions::LINEAR, egui::load::SizeHint::Size(32, 32)) {
+        Ok(egui::load::TexturePoll::Ready { texture }) => Some(texture),
+        _ => None,
+    }
 }
 
 fn host_of(url: &str) -> Option<String> {
@@ -952,6 +1063,32 @@ const KEYS: [[&str; 5]; 5] = [
     ["C", "Стереть", "e", "ln", "="],
 ];
 
+/// Клавиша калькулятора: цвет зависит от вида клавиши, при наведении подсвечивается и «вдавливается».
+fn calc_key(ui: &mut egui::Ui, label: &str, w: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 48.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let t = hover_t(ui, &resp);
+    let down = if resp.is_pointer_button_down_on() { 1.5 } else { 0.0 };
+    let r = rect.translate(Vec2::new(0.0, down - 1.0 * t));
+    let p = ui.painter();
+    let (base, hot, ink) = match label {
+        "=" => (ACCENT_A, Color32::from_rgb(255, 120, 175), Color32::WHITE),
+        "C" | "Стереть" => (Color32::from_rgb(78, 38, 62), Color32::from_rgb(120, 52, 84), Color32::from_rgb(255, 150, 170)),
+        "+" | "-" | "*" | "/" | "^" | "(" | ")" => (Color32::from_rgb(52, 46, 96), Color32::from_rgb(80, 70, 150), LINK),
+        "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "." => (Color32::from_rgb(44, 44, 58), Color32::from_rgb(66, 66, 88), Color32::WHITE),
+        _ => (Color32::from_rgb(36, 40, 62), Color32::from_rgb(54, 62, 100), Color32::from_rgb(150, 190, 255)),
+    };
+    if label == "=" {
+        grad_rrect(p, r, 15.0, mix(ACCENT_A, hot, t), mix(ACCENT_B, Color32::from_rgb(150, 120, 255), t), false);
+    } else {
+        p.rect_filled(r.translate(Vec2::new(0.0, 2.0)), CornerRadius::same(15), Color32::from_rgba_unmultiplied(0, 0, 0, 70));
+        p.rect_filled(r, CornerRadius::same(15), mix(base, hot, t));
+    }
+    let size = if label.chars().count() > 3 { 14.0 } else { 18.0 };
+    p.text(r.center(), Align2::CENTER_CENTER, label, FontId::proportional(size), ink);
+    resp
+}
+
 fn setup_style(ctx: &egui::Context) {
     let mut v = egui::Visuals::dark();
     v.panel_fill = BG;
@@ -979,7 +1116,8 @@ fn setup_style(ctx: &egui::Context) {
 fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     Frame::new()
         .fill(CARD_BG)
-        .corner_radius(CornerRadius::same(16))
+        .corner_radius(CornerRadius::same(20))
+        .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 16)))
         .inner_margin(Margin::same(18))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -989,7 +1127,10 @@ fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 fn header(ui: &mut egui::Ui, title: &str, sub: &str) {
-    ui.label(RichText::new(title).size(28.0).color(TEXT));
+    ui.label(RichText::new(title).size(30.0).strong().color(TEXT));
+    let (bar, _) = ui.allocate_exact_size(Vec2::new(54.0, 4.0), Sense::hover());
+    grad_rrect(ui.painter(), bar, 2.0, ACCENT_A, ACCENT_B, false);
+    ui.add_space(2.0);
     ui.label(RichText::new(sub).size(14.0).color(MUTED));
     ui.add_space(12.0);
 }
@@ -1037,7 +1178,7 @@ fn grad_rrect(p: &egui::Painter, rect: egui::Rect, r: f32, c0: Color32, c1: Colo
 }
 
 /// Выпадающая карточка, которая плавно вырастает из кнопки. Возвращает видимый прямоугольник.
-fn popup_card(ctx: &egui::Context, key: &str, open: bool, pos: egui::Pos2, width: f32, add: impl FnOnce(&mut egui::Ui)) -> Option<egui::Rect> {
+fn popup_card(ctx: &egui::Context, key: &str, open: bool, pos: egui::Pos2, width: f32, up: bool, add: impl FnOnce(&mut egui::Ui)) -> Option<egui::Rect> {
     let t = ctx.animate_bool_with_time(egui::Id::new((key, "t")), open, 0.26);
     if t < 0.002 {
         return None;
@@ -1045,7 +1186,7 @@ fn popup_card(ctx: &egui::Context, key: &str, open: bool, pos: egui::Pos2, width
     let e = t * t * (3.0 - 2.0 * t);
     let hid = egui::Id::new((key, "h"));
     let full: f32 = ctx.data(|d| d.get_temp(hid)).unwrap_or(260.0);
-    let top = pos - Vec2::new(0.0, 12.0 * (1.0 - e));
+    let top = if up { pos - Vec2::new(0.0, full * e - 12.0 * (1.0 - e)) } else { pos - Vec2::new(0.0, 12.0 * (1.0 - e)) };
     let vis = egui::Rect::from_min_size(top, Vec2::new(width + 2.0, (full * e).max(1.0)));
     egui::Area::new(egui::Id::new((key, "area"))).order(egui::Order::Foreground).fixed_pos(top).show(ctx, |ui| {
         ui.set_clip_rect(vis);
@@ -1123,24 +1264,37 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
     resp
 }
 
-/// Зелёная кнопка «Загрузки» внизу колонки вкладок: стрелка вниз над лотком и счётчик активных загрузок.
-fn downloads_button(ui: &mut egui::Ui, active: usize) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
+/// Кнопка «Загрузки» внизу колонки вкладок: стрелка вниз над лотком и счётчик активных загрузок.
+fn downloads_button(ui: &mut egui::Ui, active: usize, open: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 42.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
-    let fill = mix(GREEN, Color32::from_rgb(160, 222, 178), hover_t(ui, &resp));
-    let dark = Color32::from_rgb(24, 46, 31);
+    let t = hover_t(ui, &resp);
+    let o = ui.ctx().animate_bool_with_time(resp.id.with("open"), open, 0.25);
+    let dark = Color32::from_rgb(10, 44, 40);
+    let time = ui.input(|i| i.time) as f32;
     let p = ui.painter();
-    grad_rrect(p, rect, 13.0, fill, mix(fill, Color32::from_rgb(64, 190, 200), 0.75), false);
-    let c = rect.left_center() + Vec2::new(24.0, 0.0);
-    let st = Stroke::new(2.2_f32, dark);
-    p.line_segment([c + Vec2::new(0.0, -8.0), c + Vec2::new(0.0, 3.0)], st);
-    p.line_segment([c + Vec2::new(-5.0, -2.0), c + Vec2::new(0.0, 3.5)], st);
-    p.line_segment([c + Vec2::new(5.0, -2.0), c + Vec2::new(0.0, 3.5)], st);
+    let lift = rect.translate(Vec2::new(0.0, -1.5 * t));
+    p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), Color32::from_rgba_unmultiplied(52, 211, 153, (26.0 + 50.0 * t + 40.0 * o) as u8));
+    grad_rrect(p, lift, 14.0, mix(Color32::from_rgb(74, 222, 128), Color32::from_rgb(134, 239, 172), t), mix(Color32::from_rgb(34, 190, 190), Color32::from_rgb(80, 220, 220), t), false);
+    if active > 0 {
+        // Пока что-то качается, стрелка «падает» в лоток, а кнопка мягко пульсирует.
+        let pulse = 0.5 + 0.5 * (time * 4.0).sin();
+        p.rect_stroke(lift, CornerRadius::same(14), Stroke::new(2.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (40.0 + 120.0 * pulse) as u8)), egui::StrokeKind::Inside);
+        ui.ctx().request_repaint();
+    } else {
+        p.rect_stroke(lift, CornerRadius::same(14), Stroke::new(1.5_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (20.0 + 160.0 * o) as u8)), egui::StrokeKind::Inside);
+    }
+    let bob = if active > 0 { ((time * 5.0).sin() * 0.5 + 0.5) * 4.0 } else { 2.0 * t };
+    let c = lift.left_center() + Vec2::new(26.0, -1.0);
+    let st = Stroke::new(2.3_f32, dark);
+    p.line_segment([c + Vec2::new(0.0, -8.0 + bob), c + Vec2::new(0.0, 3.0 + bob)], st);
+    p.line_segment([c + Vec2::new(-5.0, -2.0 + bob), c + Vec2::new(0.0, 3.5 + bob)], st);
+    p.line_segment([c + Vec2::new(5.0, -2.0 + bob), c + Vec2::new(0.0, 3.5 + bob)], st);
     p.line_segment([c + Vec2::new(-8.0, 8.0), c + Vec2::new(8.0, 8.0)], st);
     p.line_segment([c + Vec2::new(-8.0, 3.0), c + Vec2::new(-8.0, 8.0)], st);
     p.line_segment([c + Vec2::new(8.0, 3.0), c + Vec2::new(8.0, 8.0)], st);
-    let label = if active > 0 { format!("Загрузки ({active})") } else { "Загрузки".to_string() };
-    p.text(rect.left_center() + Vec2::new(46.0, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(15.0), dark);
+    let label = if active > 0 { format!("Загрузки · {active}") } else { "Загрузки".to_string() };
+    p.text(lift.left_center() + Vec2::new(50.0, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(15.5), dark);
     resp
 }
 
@@ -1221,18 +1375,51 @@ struct VaultUi {
 }
 
 fn pill_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    ui.add(egui::Button::new(RichText::new(text).color(TEXT)).min_size(Vec2::new(0.0, 34.0)))
-        .on_hover_cursor(CursorIcon::PointingHand)
-}
-
-fn accent_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
+    let galley = ui.painter().layout_no_wrap(text.to_string(), FontId::proportional(15.0), TEXT);
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(galley.size().x + 28.0, 36.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::same(13), mix(FIELD_BG, Color32::from_rgb(64, 62, 92), t));
+    p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(160, 150, 255, (20.0 + 90.0 * t) as u8)), egui::StrokeKind::Inside);
+    p.galley(rect.center() - galley.size() / 2.0, galley, TEXT);
+    resp
+}
+
+/// Маленькая кнопка для тесных списков.
+fn chip(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), FontId::proportional(13.0), TEXT);
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(galley.size().x + 20.0, 28.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let t = hover_t(ui, &resp);
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::same(10), mix(Color32::from_rgb(46, 46, 62), Color32::from_rgb(76, 72, 120), t));
+    p.galley(rect.center() - galley.size() / 2.0, galley, TEXT);
+    resp
+}
+
+fn accent_paint(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, text: &str) {
+    let t = hover_t(ui, resp);
     let p = ui.painter();
     p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), Color32::from_rgba_unmultiplied(124, 92, 255, (24.0 + 46.0 * t) as u8));
     grad_rrect(p, rect, 14.0, mix(ACCENT_A, Color32::from_rgb(255, 120, 175), t), mix(ACCENT_B, Color32::from_rgb(150, 120, 255), t), false);
     p.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(15.0), Color32::WHITE);
+}
+
+/// Градиентная кнопка по ширине текста.
+fn accent_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let w = ui.painter().layout_no_wrap(text.to_string(), FontId::proportional(15.0), TEXT).size().x + 36.0;
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 38.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    accent_paint(ui, rect, &resp, text);
+    resp
+}
+
+/// То же на всю ширину колонки.
+fn accent_wide(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    accent_paint(ui, rect, &resp, text);
     resp
 }
 
@@ -1693,6 +1880,12 @@ struct App {
     /// Сейчас окно на весь экран из-за страницы; адрес, с которого это началось.
     page_fs: bool,
     menu_pos: egui::Pos2,
+    dl_open: bool,
+    dl_pos: egui::Pos2,
+    dl_btn: egui::Rect,
+    rnd_die: u8,
+    rnd_coin: u8,
+    rnd_pop: Instant,
     menu_btns: Vec<egui::Rect>,
     mini: Option<(Option<String>, egui::Vec2)>,
     fs_url: String,
@@ -1771,6 +1964,12 @@ impl App {
             dots_open: false,
             page_fs: false,
             menu_pos: egui::Pos2::ZERO,
+            dl_open: false,
+            dl_pos: egui::Pos2::ZERO,
+            dl_btn: egui::Rect::NOTHING,
+            rnd_die: 0,
+            rnd_coin: 0,
+            rnd_pop: Instant::now().checked_sub(Duration::from_secs(10)).unwrap_or_else(Instant::now),
             menu_btns: Vec::new(),
             mini: None,
             fs_url: String::new(),
@@ -1963,10 +2162,12 @@ impl App {
         if toggle {
             self.tools_open = !self.tools_open;
             self.dots_open = false;
+            self.dl_open = false;
         }
         if toggle_dots {
             self.dots_open = !self.dots_open;
             self.tools_open = false;
+            self.dl_open = false;
         }
     }
 
@@ -1992,13 +2193,16 @@ impl App {
                 ui.add_space(12.0);
                 ui.label(RichText::new("Вкладки").size(13.0).color(MUTED));
                 ui.add_space(4.0);
-                if accent_button(ui, "+ Новая вкладка").clicked() {
+                if accent_wide(ui, "+ Новая вкладка").clicked() {
                     new_tab = true;
                 }
                 ui.add_space(8.0);
                 egui::TopBottomPanel::bottom("tabs_bottom").frame(Frame::NONE).show_inside(ui, |ui| {
                     ui.add_space(6.0);
-                    if downloads_button(ui, active_downloads).clicked() {
+                    let r = downloads_button(ui, active_downloads, self.dl_open);
+                    self.dl_pos = r.rect.left_top() - Vec2::new(0.0, 8.0);
+                    self.dl_btn = r.rect;
+                    if r.clicked() {
                         open_downloads = true;
                     }
                 });
@@ -2023,9 +2227,18 @@ impl App {
                         let pal = [ACCENT_A, ACCENT_B, Color32::from_rgb(56, 189, 248), Color32::from_rgb(52, 211, 153), Color32::from_rgb(251, 146, 60), Color32::from_rgb(250, 204, 21)];
                         let avatar = if tab.incognito { PURPLE } else { pal[(hue % 6) as usize] };
                         let ac = row.left_center() + Vec2::new(22.0, 0.0);
-                        p.circle_filled(ac, 11.0, Color32::from_rgba_unmultiplied(avatar.r(), avatar.g(), avatar.b(), 60));
-                        let initial: String = label.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "·".to_string());
-                        p.text(ac, Align2::CENTER_CENTER, initial, FontId::proportional(13.0), avatar);
+                        let cur = tab.current_url();
+                        let icon = if tab.incognito { None } else { favicon(ui.ctx(), &cur) };
+                        if cur.starts_with("file://") && cur.ends_with("/petal_newtab.html") {
+                            paint_logo(p, egui::Rect::from_center_size(ac, Vec2::splat(22.0)));
+                        } else if let Some(tex) = icon {
+                            p.circle_filled(ac, 12.0, Color32::from_rgb(236, 236, 244));
+                            p.image(tex.id, egui::Rect::from_center_size(ac, Vec2::splat(16.0)), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+                        } else {
+                            p.circle_filled(ac, 11.0, Color32::from_rgba_unmultiplied(avatar.r(), avatar.g(), avatar.b(), 60));
+                            let initial: String = label.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "·".to_string());
+                            p.text(ac, Align2::CENTER_CENTER, initial, FontId::proportional(13.0), avatar);
+                        }
                         let text_rect = egui::Rect::from_min_max(
                             row.left_top() + Vec2::new(40.0, 0.0),
                             egui::pos2(close_rect.left() - 2.0, row.bottom()),
@@ -2057,10 +2270,9 @@ impl App {
                 });
             });
         if open_downloads {
-            let i = TOOLS.iter().position(|t| t.0 == Tool::Downloads).unwrap_or(0);
-            self.tool_win[i] = true;
-            let id = egui::ViewportId::from_hash_of(("tool", TOOLS[i].1));
-            ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
+            self.dl_open = !self.dl_open;
+            self.tools_open = false;
+            self.dots_open = false;
         }
         if new_tab {
             self.open_tab(&new_tab_url(&self.bcfg.home));
@@ -2074,28 +2286,20 @@ impl App {
     /// Маленькое меню по значку-стикеру: кнопка на каждую функцию.
     fn tools_menu(&mut self, ctx: &egui::Context) -> Option<egui::Rect> {
         let mut picked: Option<usize> = None;
-        let mut open_google = false;
         let wins = self.tool_win;
-        let card = popup_card(ctx, "tools", self.tools_open, self.menu_pos, 230.0, |ui| {
+        let card = popup_card(ctx, "tools", self.tools_open, self.menu_pos, 230.0, false, |ui| {
             ui.label(RichText::new("Функции").size(13.0).color(MUTED));
             ui.add_space(2.0);
             ui.spacing_mut().item_spacing.y = 2.0;
             for (i, (tool, name, color)) in TOOLS.iter().enumerate() {
-                if in_dots(*tool) || *tool == Tool::Downloads {
+                if in_dots(*tool) || matches!(*tool, Tool::Downloads | Tool::Sounds) {
                     continue;
                 }
                 if menu_item(ui, name, if wins[i] { *color } else { TEXT }) {
                     picked = Some(i);
                 }
             }
-            if menu_item(ui, "Google", TEXT) {
-                open_google = true;
-            }
         });
-        if open_google {
-            self.go(HOME_URL);
-            self.tools_open = false;
-        }
         if let Some(i) = picked {
             self.tool_win[i] = true;
             self.tools_open = false;
@@ -2162,7 +2366,7 @@ impl App {
         let mut picked: Option<usize> = None;
         let mut incognito = false;
         let wins = self.tool_win;
-        let card = popup_card(ctx, "dots", self.dots_open, self.menu_pos, 230.0, |ui| {
+        let card = popup_card(ctx, "dots", self.dots_open, self.menu_pos, 230.0, false, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             if menu_item(ui, "Инкогнито", PURPLE) {
                 incognito = true;
@@ -2171,7 +2375,7 @@ impl App {
             ui.separator();
             ui.add_space(4.0);
             for (i, (tool, name, color)) in TOOLS.iter().enumerate() {
-                if in_dots(*tool) && menu_item(ui, name, if wins[i] { *color } else { TEXT }) {
+                if (in_dots(*tool) || *tool == Tool::Sounds) && menu_item(ui, name, if wins[i] { *color } else { TEXT }) {
                     picked = Some(i);
                 }
             }
@@ -2189,16 +2393,86 @@ impl App {
         card
     }
 
-    /// Оба выпадающих меню; закрываются по Esc и по щелчку мимо них.
+    /// Список загрузок: карточка вырастает вверх из кнопки «Загрузки».
+    fn downloads_menu(&mut self, ctx: &egui::Context) -> Option<egui::Rect> {
+        let now = store::now_secs();
+        let time = ctx.input(|i| i.time) as f32;
+        let mut clear = false;
+        let downloads = &self.downloads;
+        let card = popup_card(ctx, "downloads", self.dl_open, self.dl_pos, 230.0, true, |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Загрузки").size(15.0).strong().color(TEXT));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if !downloads.is_empty() && chip(ui, "Очистить").clicked() {
+                        clear = true;
+                    }
+                });
+            });
+            if downloads.is_empty() {
+                ui.add_space(6.0);
+                ui.label(RichText::new("Пока ничего не скачано.").size(13.0).color(MUTED));
+            }
+            ScrollArea::vertical().max_height(330.0).auto_shrink([true, true]).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                for d in downloads.iter().rev().take(40) {
+                    let exists = Path::new(&d.path).exists();
+                    Frame::new().fill(Color32::from_rgb(26, 26, 36)).corner_radius(CornerRadius::same(13)).inner_margin(Margin::same(9)).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.add(egui::Label::new(RichText::new(d.name()).size(14.0).color(LINK)).truncate());
+                        let status = match d.state {
+                            store::DL_ACTIVE => "скачивается…".to_string(),
+                            store::DL_FAILED => "не удалось скачать".to_string(),
+                            _ if !exists => "файл удалён или перемещён".to_string(),
+                            _ => store::ago(now, d.at),
+                        };
+                        ui.label(RichText::new(status).size(12.0).color(MUTED));
+                        if d.state == store::DL_ACTIVE {
+                            // Бегущая полоска: размер файла заранее неизвестен.
+                            let (bar, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 5.0), Sense::hover());
+                            ui.painter().rect_filled(bar, CornerRadius::same(3), Color32::from_rgb(44, 44, 60));
+                            let w = bar.width() * 0.3;
+                            let x = bar.left() + (bar.width() - w) * (0.5 + 0.5 * (time * 3.0).sin());
+                            ui.painter().rect_filled(egui::Rect::from_min_size(egui::pos2(x, bar.top()), Vec2::new(w, 5.0)), CornerRadius::same(3), GREEN);
+                            ui.ctx().request_repaint();
+                        }
+                        if d.state == store::DL_DONE && exists {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                if store::is_risky_file(&d.path) {
+                                    ui.label(RichText::new("Запускайте сами").size(12.0).color(YELLOW));
+                                } else if chip(ui, "Открыть").clicked() {
+                                    open_path(&d.path);
+                                }
+                                if chip(ui, "В папке").clicked() {
+                                    reveal_path(&d.path);
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        });
+        if clear {
+            self.downloads.clear();
+            store::save_downloads(&self.downloads);
+        }
+        card
+    }
+
+    /// Выпадающие меню; закрываются по Esc и по щелчку мимо них.
     fn menus(&mut self, ctx: &egui::Context) {
         let a = self.tools_menu(ctx);
         let b = self.dots_menu(ctx);
-        if self.tools_open || self.dots_open {
+        let c = self.downloads_menu(ctx);
+        let a = a.or(c);
+        if self.tools_open || self.dots_open || self.dl_open {
             let (pressed, pos, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(Key::Escape)));
-            let inside = |p: egui::Pos2| [a, b].iter().flatten().any(|r| r.contains(p)) || self.menu_btns.iter().any(|r| r.contains(p));
+            let inside = |p: egui::Pos2| [a, b].iter().flatten().any(|r| r.contains(p)) || self.menu_btns.iter().any(|r| r.contains(p)) || self.dl_btn.contains(p);
             if esc || (pressed && pos.is_some_and(|p| !inside(p))) {
                 self.tools_open = false;
                 self.dots_open = false;
+                self.dl_open = false;
             }
         }
     }
@@ -3518,28 +3792,56 @@ impl App {
 
     fn numbers_ui(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if accent_button(ui, "Бросить кубик").clicked() {
-                    self.rnd_result = format!("Кубик: {}", self.rng.range(1, 6));
+                    self.rnd_die = self.rng.range(1, 6) as u8;
+                    self.rnd_coin = 0;
+                    self.rnd_result.clear();
+                    self.rnd_pop = Instant::now();
                 }
                 if accent_button(ui, "Подбросить монетку").clicked() {
-                    self.rnd_result =
-                        if self.rng.below(2) == 0 { "Монетка: орёл".into() } else { "Монетка: решка".into() };
+                    self.rnd_coin = if self.rng.below(2) == 0 { 1 } else { 2 };
+                    self.rnd_die = 0;
+                    self.rnd_result.clear();
+                    self.rnd_pop = Instant::now();
                 }
             });
-            ui.horizontal(|ui| {
-                ui.label("От");
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("От").color(MUTED));
                 ui.add(egui::DragValue::new(&mut self.rnd_min).range(-1_000_000_000_000i64..=1_000_000_000_000i64));
-                ui.label("до");
+                ui.label(RichText::new("до").color(MUTED));
                 ui.add(egui::DragValue::new(&mut self.rnd_max).range(-1_000_000_000_000i64..=1_000_000_000_000i64));
                 if pill_button(ui, "Случайное число").clicked() {
                     let n = self.rng.range(self.rnd_min, self.rnd_max);
-                    self.rnd_result = format!("Число: {n}");
+                    self.rnd_result = format!("{n}");
+                    self.rnd_die = 0;
+                    self.rnd_coin = 0;
+                    self.rnd_pop = Instant::now();
                 }
             });
-            if !self.rnd_result.is_empty() {
-                ui.label(RichText::new(&self.rnd_result).size(34.0).color(TEXT));
+            ui.add_space(10.0);
+            // Результат «выскакивает»: быстро вырастает с небольшим перелётом и оседает.
+            let k = (self.rnd_pop.elapsed().as_secs_f32() / 0.45).min(1.0);
+            let scale = if k < 1.0 { 1.0 - (1.0 - k).powi(3) * (k * 9.0).cos().abs() + 0.12 * (1.0 - k) } else { 1.0 };
+            if k < 1.0 {
+                ui.ctx().request_repaint();
             }
+            ui.vertical_centered(|ui| {
+                if self.rnd_die > 0 {
+                    draw_die(ui, self.rnd_die, 110.0 * scale.max(0.05), 130.0);
+                } else if self.rnd_coin > 0 {
+                    draw_coin(ui, self.rnd_coin == 1, 110.0 * scale.max(0.05), 130.0);
+                } else if !self.rnd_result.is_empty() {
+                    ui.add_space(14.0);
+                    ui.label(RichText::new(&self.rnd_result).size((54.0 * scale).max(8.0)).strong().color(LINK));
+                    ui.add_space(14.0);
+                } else {
+                    ui.add_space(30.0);
+                    ui.label(RichText::new("Нажмите кнопку, и выпадет результат").size(14.0).color(MUTED));
+                    ui.add_space(30.0);
+                }
+            });
         });
     }
 
@@ -3603,6 +3905,7 @@ impl App {
 
         let items = wheel_items(&self.wheel_text);
         let spinning = self.wheel_spin.is_some();
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("wheel_spinning"), spinning));
         let mut spin_clicked = false;
 
         card(ui, |ui| {
@@ -3696,12 +3999,23 @@ impl App {
     fn calc_ui(&mut self, ui: &mut egui::Ui) {
         header(ui, "Калькулятор", "Скобки, ^ (степень), sqrt, sin, cos, tan, ln, log, abs, pi, e. Дробь можно писать и через запятую.");
         card(ui, |ui| {
-            let resp = ui.add(
-                egui::TextEdit::singleline(&mut self.calc_input)
-                    .desired_width(f32::INFINITY)
-                    .font(FontId::proportional(24.0))
-                    .hint_text("(2+3)*4^2"),
-            );
+            let resp = Frame::new()
+                .fill(Color32::from_rgb(20, 20, 29))
+                .corner_radius(CornerRadius::same(16))
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(160, 150, 255, 40)))
+                .inner_margin(Margin::symmetric(14, 12))
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.calc_input)
+                            .frame(false)
+                            .horizontal_align(egui::Align::RIGHT)
+                            .desired_width(f32::INFINITY)
+                            .font(FontId::proportional(30.0))
+                            .hint_text("(2+3)*4^2"),
+                    )
+                })
+                .inner;
+            ui.add_space(6.0);
             if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 self.calc_run();
                 resp.request_focus();
@@ -3715,9 +4029,7 @@ impl App {
             egui::Grid::new("keypad").spacing([8.0, 8.0]).show(ui, |ui| {
                 for row in KEYS.iter() {
                     for k in row.iter() {
-                        let btn = egui::Button::new(RichText::new(*k).size(17.0)).min_size(Vec2::new(key_w, 44.0));
-                        let btn = if *k == "=" { btn.fill(Color32::from_rgb(48, 80, 140)) } else { btn };
-                        if ui.add(btn).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                        if calc_key(ui, k, key_w).clicked() {
                             press = Some(*k);
                         }
                     }
@@ -3902,6 +4214,7 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             setup_style(&cc.egui_ctx);
+            egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(App::new()))
         }),
     )

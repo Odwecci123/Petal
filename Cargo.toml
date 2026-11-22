@@ -1,11 +1,13 @@
 [package]
 name = "petal"
-version = "1.0.8"
+version = "1.0.9"
 description = "Petal: браузер с вкладками, саундпад, калькулятор и колесо удачи"
 edition = "2021"
 
 [dependencies]
 eframe = "0.31"
+egui_extras = { version = "0.31", default-features = false, features = ["http", "image"] }
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 getrandom = "0.2"
 rfd = "0.18.0"
 argon2 = "0.5"
