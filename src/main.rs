@@ -21,10 +21,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // ───────────────────────── Цвета ─────────────────────────
 
-const BG: Color32 = Color32::from_rgb(31, 31, 31);
+const BG: Color32 = Color32::from_rgb(19, 19, 26);
 const SIDE_BG: Color32 = Color32::from_rgb(17, 17, 23);
-const FIELD_BG: Color32 = Color32::from_rgb(38, 38, 50);
-const CARD_BG: Color32 = Color32::from_rgb(32, 32, 43);
+const FIELD_BG: Color32 = Color32::from_rgb(34, 34, 46);
+const CARD_BG: Color32 = Color32::from_rgb(27, 27, 37);
 static ACC_A: AtomicU32 = AtomicU32::new(0xEC4899);
 static ACC_B: AtomicU32 = AtomicU32::new(0x7C5CFF);
 static ANIM_ON: AtomicBool = AtomicBool::new(true);
@@ -672,14 +672,12 @@ form:focus-within svg{stroke:color-mix(in srgb,var(--b) 50%,#fff)}
 .bg canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 body.wp-veil .bg,body.wp-ether .bg,body.wp-tunnel .bg{display:block}
 #f{isolation:isolate}
-#f::before,#f::after,.t::before,#m button.ok::before,#m button.ok::after{content:"";position:absolute;pointer-events:none;background:conic-gradient(from var(--ang),transparent 0 48%,var(--a) 60%,#fff 71%,var(--b) 80%,transparent 94%);animation:spin 5s linear infinite}
-#f::before,.t::before,#m button.ok::before{inset:-1.5px;padding:1.5px;border-radius:29px;opacity:0;transition:opacity .35s;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+#f::before,#f::after,.t::before{content:"";position:absolute;pointer-events:none;background:conic-gradient(from var(--ang),transparent 0 48%,var(--a) 60%,#fff 71%,var(--b) 80%,transparent 94%);animation:spin 5s linear infinite}
+#f::before,.t::before{inset:-1.5px;padding:1.5px;border-radius:29px;opacity:0;transition:opacity .35s;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
 #f::after{inset:-2px;border-radius:29px;z-index:-1;filter:blur(16px);opacity:0;transition:opacity .45s}
 #f:hover::before{opacity:.6}#f:focus-within::before{opacity:1}#f:focus-within::after{opacity:.5}
 .t::before{border-radius:23px;animation-duration:3.6s}.t:hover::before{opacity:1}
-#m button.ok{position:relative;background:#000;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
-#m button.ok::before{border-radius:14px;opacity:1;animation-duration:5.4s}
-#m button.ok::after{inset:-1px;border-radius:14px;filter:blur(6px);mix-blend-mode:plus-lighter;opacity:.65;animation-duration:5.4s;z-index:0;-webkit-mask:none;mask:none;padding:0;background:conic-gradient(from var(--ang),transparent 0 52%,var(--b) 70%,#fff 76%,transparent 92%)}
+#m button.ok{background:#0f0f14;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),inset 0 1px 0 rgba(255,255,255,.08);transition:transform .12s ease-out,background .15s}#m button.ok:hover{background:#1f1f28}#m button.ok:active{transform:scale(.97)}
 .t{overflow:visible}
 body:not(.wp-aurora)::before,body:not(.wp-aurora)::after{display:none}
 body.wp-gradient{background:linear-gradient(135deg,color-mix(in srgb,var(--a) 30%,#131316),#131316 48%,color-mix(in srgb,var(--b) 34%,#131316));background-size:180% 180%;animation:gs 16s ease-in-out infinite alternate}
@@ -1419,17 +1417,19 @@ fn setup_style(ctx: &egui::Context) {
     v.panel_fill = BG;
     v.window_fill = BG;
     v.extreme_bg_color = FIELD_BG;
-    v.selection.bg_fill = Color32::from_rgb(48, 80, 140);
+    v.selection.bg_fill = alpha(accent_b(), 110);
     v.selection.stroke = Stroke::new(1.0_f32, TEXT);
-    let radius = CornerRadius::same(18);
+    let radius = CornerRadius::same(12);
     v.widgets.noninteractive.corner_radius = radius;
     v.widgets.inactive.corner_radius = radius;
     v.widgets.hovered.corner_radius = radius;
     v.widgets.active.corner_radius = radius;
     v.widgets.inactive.weak_bg_fill = FIELD_BG;
-    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(63, 64, 68);
-    v.widgets.active.weak_bg_fill = Color32::from_rgb(78, 80, 86);
-    v.widgets.inactive.bg_stroke = Stroke::NONE;
+    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(46, 46, 58);
+    v.widgets.active.weak_bg_fill = Color32::from_rgb(58, 58, 72);
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 18));
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 60));
+    v.widgets.active.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 90));
     ctx.set_visuals(v);
 
     ctx.style_mut(|s| {
@@ -1439,7 +1439,7 @@ fn setup_style(ctx: &egui::Context) {
 }
 
 fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
-    Frame::new()
+    let r = Frame::new()
         .fill(CARD_BG)
         .corner_radius(CornerRadius::same(20))
         .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 16)))
@@ -1448,11 +1448,20 @@ fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
             ui.set_width(ui.available_width());
             add(ui);
         });
+    // Светлая кромка сверху и тонкая цветная линия слева: карточка читается как отдельная плоскость.
+    let rc = r.response.rect;
+    let p = ui.painter();
+    p.line_segment([rc.left_top() + Vec2::new(20.0, 1.0), rc.right_top() + Vec2::new(-20.0, 1.0)], Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 30)));
     ui.add_space(8.0);
 }
 
 fn section(ui: &mut egui::Ui, title: &str) {
-    ui.label(RichText::new(title).size(17.0).strong().color(TEXT));
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let (bar, _) = ui.allocate_exact_size(Vec2::new(4.0, 18.0), Sense::hover());
+        grad_rrect(ui.painter(), bar, 2.0, accent_a(), accent_b(), true);
+        ui.label(RichText::new(title).size(17.0).strong().color(TEXT));
+    });
     ui.add_space(6.0);
 }
 
@@ -1510,13 +1519,13 @@ fn grad_rrect(p: &egui::Painter, rect: egui::Rect, r: f32, c0: Color32, c1: Colo
     let mut mesh = egui::Mesh::default();
     mesh.colored_vertex(rect.center(), color_at(rect.center()));
     for (c, start) in corners {
-        for k in 0..=6 {
-            let a = (start + 90.0 * k as f32 / 6.0).to_radians();
+        for k in 0..=12 {
+            let a = (start + 90.0 * k as f32 / 12.0).to_radians();
             let q = c + Vec2::new(a.cos(), a.sin()) * r;
             mesh.colored_vertex(q, color_at(q));
         }
     }
-    let n = 28u32;
+    let n = 52u32;
     for i in 0..n {
         mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
     }
@@ -1573,14 +1582,78 @@ fn hover_t(ui: &egui::Ui, resp: &egui::Response) -> f32 {
 
 /// Стеклянная кнопка-кружок: полупрозрачная заливка, тонкая рамка; при наведении светлеет и обводится цветом темы.
 fn glass_base(p: &egui::Painter, rect: egui::Rect, radius: f32, t: f32, o: f32) {
+    // Графитовая кнопка с объёмом: мягкая тень, вертикальный градиент, светлая кромка сверху. Без свечения.
     let r = CornerRadius::same(radius as u8);
     let glow = t.max(o);
-    p.rect_filled(rect.translate(Vec2::new(0.0, 2.0)).shrink(2.0), r, alpha(accent_b(), (26.0 * glow) as u8));
-    p.rect_filled(rect, r, mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
-    if o > 0.01 {
-        grad_rrect(p, rect, radius, alpha(accent_a(), (50.0 * o) as u8), alpha(accent_b(), (60.0 * o) as u8), false);
+    let wide = p.with_clip_rect(p.clip_rect().union(rect.expand(12.0)));
+    if rect.height() >= 38.0 {
+        wide.add(egui::epaint::Shadow { offset: [0, 2], blur: 7, spread: 0, color: Color32::from_black_alpha((80.0 + 50.0 * t) as u8) }.as_shape(rect, r));
     }
-    p.rect_stroke(rect, r, Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 28), alpha(link(), 190), glow)), egui::StrokeKind::Inside);
+    let top = mix(Color32::from_rgb(33, 33, 42), Color32::from_rgb(46, 46, 58), t);
+    let bottom = mix(Color32::from_rgb(12, 12, 16), Color32::from_rgb(20, 20, 27), t);
+    if rect.height() >= 38.0 {
+        grad_rrect(p, rect, radius, top, bottom, true);
+    } else {
+        // На мелких кнопках сетка градиента даёт зубцы по краю, поэтому там ровная заливка.
+        p.rect_filled(rect, r, mix(top, bottom, 0.55));
+    }
+    if o > 0.01 {
+        p.rect_filled(rect, r, alpha(accent_b(), (34.0 * o) as u8));
+    }
+    let inset = radius;
+    if rect.height() > 2.0 * radius + 1.0 {
+        p.line_segment(
+            [rect.left_top() + Vec2::new(inset, 1.0), rect.right_top() + Vec2::new(-inset, 1.0)],
+            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (26.0 + 26.0 * t) as u8)),
+        );
+    }
+    p.rect_stroke(rect, r, Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 20), alpha(link(), 160), glow)), egui::StrokeKind::Inside);
+}
+
+/// Тихая стеклянная кнопка: лёгкая светлая заливка и тонкая рамка, без тени и тёмной плашки.
+/// `tint` (0..1) подкрашивает кнопку цветом темы; на наведении заливка и рамка проявляются.
+fn quiet_base(p: &egui::Painter, rect: egui::Rect, radius: f32, t: f32, tint: f32) {
+    // Нейтральное матовое стекло: без цветных оттенков. Верхняя кромка светлее, нижняя чуть темнее.
+    let r = CornerRadius::same(radius as u8);
+    let base = 7.0 + 11.0 * t + 12.0 * tint;
+    p.rect_filled(rect, r, Color32::from_rgba_unmultiplied(255, 255, 255, base as u8));
+    let inner = rect.shrink(1.0);
+    let rr = CornerRadius::same((radius - 1.0).max(0.0) as u8);
+    // Нижняя половина затемнена: даёт лёгкий объём.
+    let low = egui::Rect::from_min_max(egui::pos2(inner.left(), inner.center().y), inner.right_bottom());
+    if rect.width() < 60.0 {
+        p.rect_filled(low, CornerRadius { nw: 0, ne: 0, sw: rr.sw, se: rr.se }, Color32::from_black_alpha(22));
+    }
+    let inset = radius * 0.9;
+    p.line_segment(
+        [rect.left_top() + Vec2::new(inset, 1.0), rect.right_top() + Vec2::new(-inset, 1.0)],
+        Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (38.0 + 34.0 * t) as u8)),
+    );
+    p.rect_stroke(rect, r, Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (22.0 + 40.0 * t + 24.0 * tint) as u8)), egui::StrokeKind::Inside);
+}
+
+/// Приподнятая кнопка, заметная как кнопка с розой: плотная заливка-градиент, цветная «губа» снизу,
+/// светлая рамка; при наведении поднимается и светлеет. Возвращает прямоугольник с учётом подъёма.
+fn raised_base(p: &egui::Painter, rect0: egui::Rect, radius: f32, t: f32, o: f32, enabled: bool) -> egui::Rect {
+    let rect = rect0.translate(Vec2::new(0.0, -1.5 * t));
+    let k = if enabled { 1.0 } else { 0.38 };
+    let wide = p.with_clip_rect(p.clip_rect().union(rect0.expand(10.0)));
+    // «Губа» чуть уже кнопки по бокам, чтобы низ выглядел ровно и не вылезал за края.
+    wide.rect_filled(rect0.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(2.5, 0.0)), CornerRadius::same(radius as u8), alpha(accent_b(), ((26.0 + 48.0 * t + 40.0 * o) * k) as u8));
+    let hi = mix(Color32::from_rgb(86, 80, 150), lit(accent_b()), 0.25 + 0.25 * t + 0.3 * o);
+    let lo = mix(Color32::from_rgb(40, 36, 86), accent_b(), 0.12 + 0.2 * t + 0.3 * o);
+    let hi = mix(Color32::from_rgb(38, 36, 60), hi, k);
+    let lo = mix(Color32::from_rgb(24, 22, 40), lo, k);
+    grad_rrect(&wide, rect, radius, hi, lo, true);
+    p.rect_stroke(rect, CornerRadius::same(radius as u8), Stroke::new(1.3_f32, Color32::from_rgba_unmultiplied(255, 255, 255, ((52.0 + 120.0 * o + 40.0 * t) * k) as u8)), egui::StrokeKind::Inside);
+    rect
+}
+
+/// Линия со скруглёнными концами.
+fn round_line(p: &egui::Painter, a: egui::Pos2, b: egui::Pos2, st: Stroke) {
+    p.line_segment([a, b], st);
+    p.circle_filled(a, st.width / 2.0, st.color);
+    p.circle_filled(b, st.width / 2.0, st.color);
 }
 
 // ───────────────────────── Бегущий свет по ободку (как у GlowButton) ─────────────────────────
@@ -1670,40 +1743,13 @@ fn glow_ring(p: &egui::Painter, rect: egui::Rect, radius: f32, phase: f32, k: f3
     }
 }
 
-/// Режим «при наведении»: свет стартует сверху и бежит, пока курсор на кнопке; t — плавная степень наведения.
-fn hover_ring(ui: &egui::Ui, id: egui::Id, rect: egui::Rect, radius: f32, t: f32) {
-    if t < 0.01 {
-        ui.ctx().data_mut(|d| d.remove::<f32>(id.with("ring0")));
-        return;
-    }
-    let now = ui.input(|i| i.time) as f32;
-    let start: f32 = ui.ctx().data_mut(|d| *d.get_temp_mut_or::<f32>(id.with("ring0"), now));
-    if ANIM_ON.load(Ordering::Relaxed) {
-        ui.ctx().request_repaint();
-        glow_ring(ui.painter(), rect.shrink(0.5), radius, ring_phase((now - start) / 3.4), t);
-    } else {
-        glow_ring(ui.painter(), rect.shrink(0.5), radius, 0.0, t * 0.7);
-    }
-}
-
-const BTN_BLACK: Color32 = Color32::from_rgb(6, 6, 9);
+const BTN_HOVER: Color32 = Color32::from_rgb(31, 31, 40);
 
 /// Жирный текст: в шрифте egui нет жирного начертания, поэтому буквы рисуются дважды с крошечным сдвигом.
 fn bold_text(p: &egui::Painter, pos: egui::Pos2, align: Align2, text: &str, size: f32, color: Color32) {
     for dx in [-0.4_f32, 0.4] {
         p.text(pos + Vec2::new(dx, 0.0), align, text, FontId::proportional(size), color);
     }
-}
-
-/// Украшение чёрной кнопки: свет по ободку идёт всегда (у каждой кнопки в своей фазе), при наведении ярче.
-fn deco_ring(ui: &egui::Ui, id: egui::Id, rect: egui::Rect, radius: f32, t: f32) {
-    let anim = ANIM_ON.load(Ordering::Relaxed);
-    let now = if anim { ui.input(|i| i.time) as f32 } else { 0.0 };
-    if anim {
-        ui.ctx().request_repaint();
-    }
-    let off = (id.value() % 997) as f32 / 997.0;
-    glow_ring(ui.painter(), rect.shrink(0.5), radius, ring_phase(now / 5.4 + off), 0.42 + 0.58 * t);
 }
 
 /// Режим «всегда»: свет ходит по кнопке сам.
@@ -1722,7 +1768,7 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
     let t = if enabled { hover_t(ui, &resp) } else { 0.0 };
     let pressed = enabled && resp.is_pointer_button_down_on();
     let rect = if pressed { rect.shrink(1.5) } else { rect };
-    let color = if enabled { mix(Color32::from_rgb(190, 192, 206), Color32::WHITE, t) } else { Color32::from_rgba_unmultiplied(255, 255, 255, 44) };
+    let color = if enabled { mix(Color32::from_rgb(190, 192, 206), Color32::WHITE, t) } else { Color32::from_rgb(92, 88, 126) };
     // Стрелка «обновить» делает оборот при каждом нажатии.
     let rot = if matches!(icon, NavIcon::Reload) {
         let id = egui::Id::new("reload_turns");
@@ -1736,42 +1782,42 @@ fn icon_button(ui: &mut egui::Ui, icon: NavIcon, enabled: bool) -> egui::Respons
         0.0
     };
     let p = ui.painter();
-    if enabled {
-        glass_base(p, rect, 18.0, t, 0.0);
-        deco_ring(ui, resp.id, rect, 18.0, t);
-    } else {
-        p.rect_filled(rect, CornerRadius::same(18), BTN_BLACK);
-        p.rect_stroke(rect, CornerRadius::same(18), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 14)), egui::StrokeKind::Inside);
-    }
+    let rect = raised_base(p, rect, 12.0, t, 0.0, enabled);
     let c = rect.center();
-    let st = Stroke::new(1.9_f32, color);
     match icon {
         NavIcon::Back | NavIcon::Forward => {
             let d = if matches!(icon, NavIcon::Back) { -1.0 } else { 1.0 };
-            // При наведении стрелка чуть сдвигается в свою сторону.
+            // Шеврон «‹» / «›»: при наведении сдвигается в свою сторону.
             let c = c + Vec2::new(1.5 * d * t, 0.0);
-            p.line_segment([c + Vec2::new(-5.5 * d, 0.0), c + Vec2::new(5.5 * d, 0.0)], st);
-            p.line_segment([c + Vec2::new(5.5 * d, 0.0), c + Vec2::new(1.0 * d, -4.6)], st);
-            p.line_segment([c + Vec2::new(5.5 * d, 0.0), c + Vec2::new(1.0 * d, 4.6)], st);
+            let st = Stroke::new(2.5_f32, color);
+            let (x0, x1) = (-2.6 * d, 3.2 * d);
+            let (a, tip, b) = (c + Vec2::new(x0, -6.2), c + Vec2::new(x1, 0.0), c + Vec2::new(x0, 6.2));
+            p.add(egui::Shape::line(vec![a, tip, b], st));
+            for q in [a, b] {
+                p.circle_filled(q, st.width / 2.0, color);
+            }
+            p.circle_filled(tip, st.width / 2.0, color);
         }
         NavIcon::Reload => {
-            let r = 6.6_f32;
-            let (a0, a1) = (-1.2_f32 + rot, -1.2_f32 + rot + std::f32::consts::TAU * 0.78);
-            let pts: Vec<egui::Pos2> = (0..=24)
+            let r = 6.4_f32;
+            let st = Stroke::new(2.3_f32, color);
+            let (a0, a1) = (-0.9_f32 + rot, -0.9_f32 + rot + std::f32::consts::TAU * 0.74);
+            let pts: Vec<egui::Pos2> = (0..=28)
                 .map(|i| {
-                    let a = a0 + (a1 - a0) * (i as f32 / 24.0);
+                    let a = a0 + (a1 - a0) * (i as f32 / 28.0);
                     c + Vec2::new(r * a.cos(), r * a.sin())
                 })
                 .collect();
             let end = *pts.last().unwrap_or(&c);
             p.add(egui::Shape::line(pts, st));
-            // Наконечник стрелки: два штриха назад по касательной в конце дуги.
-            let back = Vec2::new(a1.sin(), -a1.cos());
-            for rot in [0.6_f32, -0.6] {
-                let (sn, cs) = rot.sin_cos();
-                let d = Vec2::new(back.x * cs - back.y * sn, back.x * sn + back.y * cs);
-                p.line_segment([end, end + d * 5.0], st);
-            }
+            // Заполненный наконечник по касательной в конце дуги.
+            let tangent = Vec2::new(-a1.sin(), a1.cos());
+            let normal = Vec2::new(a1.cos(), a1.sin());
+            p.add(egui::Shape::convex_polygon(
+                vec![end + tangent * 4.6, end + normal * 4.2 - tangent * 0.8, end - normal * 4.2 - tangent * 0.8],
+                color,
+                Stroke::NONE,
+            ));
         }
     }
     resp
@@ -1787,9 +1833,7 @@ fn downloads_button(ui: &mut egui::Ui, active: usize, open: bool) -> egui::Respo
     let busy = active > 0;
     let p = ui.painter();
     let lit_up = t.max(o);
-    p.rect_filled(rect, CornerRadius::same(13), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), lit_up));
-    p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 18), alpha(accent_b(), 150), lit_up)), egui::StrokeKind::Inside);
-    deco_ring(ui, resp.id, rect, 13.0, lit_up);
+    let rect = raised_base(p, rect, 13.0, lit_up, 0.0, true);
     let bob = if busy { ((time * 5.0).sin() * 0.5 + 0.5) * 3.5 } else { 1.5 * t };
     let ink = mix(MUTED, mix(TEXT, link(), o), lit_up.max(if busy { 1.0 } else { 0.0 }));
     let c = rect.left_center() + Vec2::new(24.0, -1.0);
@@ -1823,9 +1867,7 @@ fn new_tab_row(ui: &mut egui::Ui) -> egui::Response {
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(12), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
-    p.rect_stroke(rect, CornerRadius::same(12), Stroke::new(1.0_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 28), alpha(accent_b(), 170), t)), egui::StrokeKind::Inside);
-    deco_ring(ui, resp.id, rect, 12.0, t);
+    let rect = raised_base(p, rect, 12.0, t, 0.0, true);
     let c = rect.left_center() + Vec2::new(22.0, 0.0);
     let ink = mix(MUTED, Color32::WHITE, t);
     let st = Stroke::new(1.8_f32, ink);
@@ -1868,9 +1910,8 @@ fn dots_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
     let o = ui.ctx().abt(resp.id.with("open"), open, 0.2);
     let rect = if resp.is_pointer_button_down_on() { rect.shrink(1.5) } else { rect };
     let p = ui.painter();
-    glass_base(p, rect, 13.0, t, o);
-    deco_ring(ui, resp.id, rect, 13.0, t.max(o * 0.6));
-    let ink = mix(mix(Color32::from_rgb(190, 192, 206), Color32::WHITE, t), Color32::WHITE, o);
+    let rect = raised_base(p, rect, 12.0, t, o, true);
+    let ink = mix(mix(Color32::from_rgb(222, 218, 244), Color32::WHITE, t), Color32::WHITE, o);
     let c = rect.center();
     let st = Stroke::new(1.8_f32, ink);
     let (from, to) = ([-4.0_f32, 4.0, -1.0], [4.0_f32, -4.0, 4.5]);
@@ -1878,8 +1919,8 @@ fn dots_button(ui: &mut egui::Ui, open: bool) -> egui::Response {
     for (i, dy) in [-7.5_f32, 0.0, 7.5].into_iter().enumerate() {
         let x = from[i] + (to[i] - from[i]) * k;
         // Линия идёт по обе стороны от кружка, а не под ним.
-        p.line_segment([c + Vec2::new(-9.0, dy), c + Vec2::new(x - 3.8, dy)], st);
-        p.line_segment([c + Vec2::new(x + 3.8, dy), c + Vec2::new(9.0, dy)], st);
+        round_line(p, c + Vec2::new(-9.0, dy), c + Vec2::new(x - 3.8, dy), st);
+        round_line(p, c + Vec2::new(x + 3.8, dy), c + Vec2::new(9.0, dy), st);
         p.circle_stroke(c + Vec2::new(x, dy), 2.7, st);
     }
     resp
@@ -1890,9 +1931,7 @@ fn menu_item(ui: &mut egui::Ui, text: &str, color: Color32) -> bool {
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(13), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
-    p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (22.0 + 60.0 * t) as u8)), egui::StrokeKind::Inside);
-    deco_ring(ui, resp.id, rect, 13.0, t);
+    glass_base(p, rect, 13.0, t, 0.0);
     // Цветная «пуговка» с первой буквой.
     let tint = if color == TEXT { link() } else { color };
     let b = egui::Rect::from_center_size(rect.left_center() + Vec2::new(22.0, 0.0), Vec2::splat(28.0 + 2.0 * t));
@@ -1926,9 +1965,7 @@ fn pill_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(13), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
-    p.rect_stroke(rect, CornerRadius::same(13), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(160, 150, 255, (20.0 + 90.0 * t) as u8)), egui::StrokeKind::Inside);
-    deco_ring(ui, resp.id, rect, 13.0, t);
+    glass_base(p, rect, 13.0, t, 0.0);
     bold_text(p, rect.center(), Align2::CENTER_CENTER, text, 15.0, Color32::WHITE);
     resp
 }
@@ -1940,8 +1977,7 @@ fn chip(ui: &mut egui::Ui, text: &str) -> egui::Response {
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     let t = hover_t(ui, &resp);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(10), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
-    p.rect_stroke(rect, CornerRadius::same(10), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, (30.0 + 90.0 * t) as u8)), egui::StrokeKind::Inside);
+    glass_base(p, rect, 10.0, t, 0.0);
     drop(galley);
     bold_text(p, rect.center(), Align2::CENTER_CENTER, text, 13.0, Color32::WHITE);
     resp
@@ -1952,9 +1988,7 @@ fn accent_paint(ui: &mut egui::Ui, rect: egui::Rect, resp: &egui::Response, text
     let p = ui.painter();
     p.rect_filled(rect.translate(Vec2::new(0.0, 3.0)).shrink2(Vec2::new(6.0, 0.0)), CornerRadius::same(14), alpha(accent_b(), (18.0 + 46.0 * t) as u8));
     // Тёмная кнопка с лёгким отсветом темы изнутри; по ободку бежит свет.
-    p.rect_filled(rect, CornerRadius::same(14), mix(BTN_BLACK, Color32::from_rgb(20, 20, 28), t));
-    p.rect_stroke(rect, CornerRadius::same(14), Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 22)), egui::StrokeKind::Inside);
-    loop_ring(ui, rect, 14.0, 0.8 + 0.2 * t);
+    glass_base(p, rect, 14.0, t, 0.0);
     bold_text(p, rect.center(), Align2::CENTER_CENTER, text, 15.0, Color32::WHITE);
 }
 
@@ -2713,9 +2747,9 @@ impl App {
         ui.add_space(8.0);
         let glow = ui.ctx().abt(egui::Id::new("addr_glow"), self.addr_focused, 0.2);
         let field = Frame::new()
-            .fill(mix(Color32::from_rgba_unmultiplied(255, 255, 255, 10), Color32::from_rgba_unmultiplied(255, 255, 255, 18), glow))
+            .fill(mix(Color32::from_rgba_unmultiplied(0, 0, 0, 110), Color32::from_rgba_unmultiplied(0, 0, 0, 150), glow))
             .corner_radius(CornerRadius::same(20))
-            .stroke(Stroke::new(1.2_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 22), accent_b(), glow)))
+            .stroke(Stroke::new(1.2_f32, mix(Color32::from_rgba_unmultiplied(255, 255, 255, 26), accent_b(), glow)))
             .inner_margin(Margin { left: 38, right: 14, top: 7, bottom: 7 })
             .show(ui, |ui| {
             let resp = ui.add(
@@ -2735,9 +2769,6 @@ impl App {
                 go = Some(self.addr.clone());
             }
         });
-        if glow > 0.02 {
-            loop_ring(ui, field.response.rect, 20.0, glow);
-        }
         // Лупа слева в строке: при фокусе подсвечивается цветом темы.
         {
             let c = field.response.rect.left_center() + Vec2::new(19.0, -1.0);
@@ -2837,8 +2868,6 @@ impl App {
                             grad_rrect(p, row, 12.0, alpha(accent_a(), (52.0 * at) as u8), alpha(accent_b(), (60.0 * at) as u8), false);
                             p.rect_stroke(row, CornerRadius::same(12), Stroke::new(1.0_f32, alpha(accent_b(), (120.0 * at) as u8)), egui::StrokeKind::Inside);
                             loop_ring(ui, row, 12.0, 0.5 * at);
-                        } else {
-                            hover_ring(ui, resp.id, row, 12.0, ht);
                         }
                         // Цветной кружок с первой буквой сайта.
                         let label = tab.label();
