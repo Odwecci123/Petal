@@ -623,7 +623,43 @@ static SEARCH_IDX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsi
 static DL_DIR: Mutex<String> = Mutex::new(String::new());
 static ZOOM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
 
+/// Решения пользователя о правах сайтов; читаются из обработчика запросов страницы.
+static PERMS: Mutex<Vec<store::PermRule>> = Mutex::new(Vec::new());
+static BLOCK_NOTIF: AtomicBool = AtomicBool::new(true);
+
+fn perms_snapshot() -> Vec<store::PermRule> {
+    PERMS.lock().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// Меняет право сайта и сразу сохраняет список.
+fn perm_apply(host: &str, kind: &str, v: Option<bool>) {
+    if let Ok(mut g) = PERMS.lock() {
+        store::perm_set(&mut g, host, kind, v);
+        let text = store::perms_to_text(&g);
+        if g.is_empty() {
+            let _ = std::fs::remove_file(store::PERMS_FILE);
+        } else {
+            let _ = std::fs::write(store::PERMS_FILE, text);
+        }
+    }
+}
+
+/// Стирает выбранные данные профиля WebView2. Работает только пока браузер не запущен.
+fn wipe_profile(c: &store::BrowserCfg) {
+    for base in ["WebView2/EBWebView/Default", "WebView2/Default"] {
+        for p in store::wipe_paths(c) {
+            let path = std::path::Path::new(base).join(p);
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+}
+
 fn sync_live(c: &store::BrowserCfg) {
+    BLOCK_NOTIF.store(c.block_notifications, Ordering::Relaxed);
     BLOCK_POPUPS.store(c.block_popups, Ordering::Relaxed);
     ZOOM.store(c.zoom, Ordering::Relaxed);
     SEARCH_IDX.store(store::SEARCH_ENGINES.iter().position(|e| e.0 == c.search).unwrap_or(0), Ordering::Relaxed);
@@ -960,7 +996,7 @@ mod web {
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
     use std::sync::{Arc, Mutex};
     use wry::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
-    use wry::{NewWindowResponse, Rect, WebView, WebViewBuilder, WebViewBuilderExtWindows};
+    use wry::{NewWindowResponse, PermissionKind, PermissionResponse, Rect, WebView, WebViewBuilder, WebViewBuilderExtWindows};
     use super::{store, DlEvent, DL_EVENTS};
 
     const PIP_JS: &str = r##"(function(){if(window.__petalPip)return;window.__petalPip=1;var b=null,v=null,t=0;
@@ -1010,6 +1046,8 @@ window.addEventListener('message',function(ev){
 if(isTop){window.__petalMute=function(b){muted=!!b;apply();down();tick();};}
 setInterval(tick,500);
 })();"#;
+    /// Сообщает программе, на каком сайте открыта вкладка (адрес берётся из источника сообщения, а не из текста).
+    const HOST_JS: &str = "if(window===window.top){try{window.ipc.postMessage('petal:host');}catch(e){}}";
     const NAV_JS: &str = "(function(){if(window!==window.top)return;var l=-1;function r(){var v=0;try{if(window.navigation){v=(navigation.canGoBack?1:0)|(navigation.canGoForward?2:0);}else{v=(history.length>1?1:0)|2;}}catch(e){}if(v!==l){l=v;try{window.ipc.postMessage('petal:nav:'+v);}catch(e){}}}setInterval(r,400);r();})();";
     /// Сообщает сайтам «не отслеживайте меня» (Do Not Track и Global Privacy Control).
     const PRIVACY_JS: &str = "(function(){try{Object.defineProperty(navigator,'doNotTrack',{get:function(){return '1';}});Object.defineProperty(navigator,'globalPrivacyControl',{get:function(){return true;}});}catch(e){}})();";
@@ -1044,13 +1082,39 @@ setInterval(tick,500);
             let cfg = super::FROZEN.get().cloned().unwrap_or_default();
             // В инкогнито с автоочисткой загрузки не попадают в общий список.
             let hide_dl = incognito && cfg.wipe_incognito;
+            let host_now: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+            let (host_perm, host_ipc) = (host_now.clone(), host_now);
             let mut builder = WebViewBuilder::new()
                 // Страница сообщает, когда её элемент (например, видео на YouTube) уходит на весь экран.
                 .with_initialization_script(FULLSCREEN_JS)
                 .with_initialization_script(PIP_JS)
                 .with_initialization_script(NAV_JS)
                 .with_initialization_script(AUDIO_JS)
+                .with_initialization_script(HOST_JS)
+                .with_permission_handler(move |kind| {
+                    let key = match kind {
+                        PermissionKind::Camera => "camera",
+                        PermissionKind::Microphone => "mic",
+                        PermissionKind::Geolocation => "geo",
+                        PermissionKind::Notifications => "notif",
+                        _ => return PermissionResponse::Default,
+                    };
+                    let host = host_perm.lock().map(|h| h.clone()).unwrap_or_default();
+                    let rules = super::perms_snapshot();
+                    match store::perm_decision(&rules, &host, key, super::BLOCK_NOTIF.load(Ordering::Relaxed)) {
+                        Some(true) => PermissionResponse::Allow,
+                        Some(false) => PermissionResponse::Deny,
+                        None => PermissionResponse::Default,
+                    }
+                })
                 .with_ipc_handler(move |req| match req.body().as_str() {
+                    "petal:host" => {
+                        if let Some(h) = req.uri().host() {
+                            if let Ok(mut g) = host_ipc.lock() {
+                                *g = h.to_lowercase();
+                            }
+                        }
+                    }
                     "petal:fs:1" => fullscreen.store(true, Ordering::Relaxed),
                     "petal:fs:0" => fullscreen.store(false, Ordering::Relaxed),
                     "petal:pip:1" => pip.store(true, Ordering::Relaxed),
@@ -2651,6 +2715,9 @@ struct App {
     ext_list: Vec<(String, String)>,
     ext_rx: Option<mpsc::Receiver<Result<String, String>>>,
     menu_pos: egui::Pos2,
+    site_open: bool,
+    site_pos: egui::Pos2,
+    site_btn: egui::Rect,
     dl_open: bool,
     dl_pos: egui::Pos2,
     dl_btn: egui::Rect,
@@ -2726,10 +2793,11 @@ impl App {
         ACC_B.store(ib, Ordering::Relaxed);
         ANIM_ON.store(bcfg.anim, Ordering::Relaxed);
         write_pages(&bcfg);
-        if bcfg.clear_on_exit {
-            // Браузер ещё не запущен, поэтому его папку с cookie и кэшем можно стереть целиком.
-            let _ = std::fs::remove_dir_all("WebView2");
+        if let Ok(mut g) = PERMS.lock() {
+            *g = store::load_perms();
         }
+        // Браузер ещё не запущен, поэтому файлы профиля с выбранными данными ещё не заняты.
+        wipe_profile(&bcfg);
         let (urls, active) = if bcfg.restore { store::load_session() } else { (Vec::new(), 0) };
         let (tabs, active) = if urls.is_empty() {
             (vec![Pane::new(&new_tab_url(&bcfg.home))], 0)
@@ -2748,6 +2816,7 @@ impl App {
             }
         }
         let next_gid = groups.len() as u32 + 1;
+        let wipe_hist = bcfg.clear_history;
         let mut app = App {
             tabs,
             tab_groups: groups,
@@ -2779,6 +2848,9 @@ impl App {
             ext_list: list_extensions(),
             ext_rx: None,
             menu_pos: egui::Pos2::ZERO,
+            site_open: false,
+            site_pos: egui::Pos2::ZERO,
+            site_btn: egui::Rect::NOTHING,
             dl_open: false,
             dl_pos: egui::Pos2::ZERO,
             dl_btn: egui::Rect::NOTHING,
@@ -2792,7 +2864,7 @@ impl App {
 
             saved_bcfg: bcfg.clone(),
             bcfg,
-            history: store::load_history(),
+            history: if wipe_hist { Vec::new() } else { store::load_history() },
             history_dirty: false,
             history_saved_at: Instant::now(),
             hist_search: String::new(),
@@ -3080,8 +3152,45 @@ impl App {
                 go = Some(self.addr.clone());
             }
         });
+        // На сайтах слева в строке замок (по нему открываются права сайта), в остальных местах лупа.
+        let site = self.site_info();
+        if let Some((_, secure)) = &site {
+            let c = field.response.rect.left_center() + Vec2::new(19.0, 0.0);
+            let area = egui::Rect::from_center_size(c, Vec2::splat(26.0));
+            let r = ui.interact(area, egui::Id::new("site_lock"), Sense::click());
+            let t = hover_t(ui, &r);
+            let col = if *secure { Color32::from_rgb(110, 214, 150) } else { Color32::from_rgb(244, 190, 90) };
+            let p = ui.painter();
+            if t > 0.01 || self.site_open {
+                p.circle_filled(c, 12.0, Color32::from_rgba_unmultiplied(255, 255, 255, (22.0 + 22.0 * t) as u8));
+            }
+            let st = Stroke::new(1.6_f32, col);
+            // Дужка: у защищённого соединения закрыта, у обычного приоткрыта.
+            let sh = c + Vec2::new(0.0, -1.5);
+            let pts: Vec<egui::Pos2> = (0..=10)
+                .map(|n| {
+                    let a = std::f32::consts::PI * (n as f32 / 10.0);
+                    sh + Vec2::new(-a.cos() * 3.4 + if *secure { 0.0 } else { 3.0 }, -a.sin() * 3.6)
+                })
+                .collect();
+            p.add(egui::Shape::line(pts, st));
+            p.rect_filled(egui::Rect::from_center_size(c + Vec2::new(0.0, 2.8), Vec2::new(10.0, 7.5)), CornerRadius::same(2), col);
+            p.circle_filled(c + Vec2::new(0.0, 2.6), 1.1, Color32::from_rgb(20, 22, 30));
+            r.clone().on_hover_text(if *secure { "Соединение защищено. Права сайта" } else { "Соединение не защищено. Права сайта" }).on_hover_cursor(CursorIcon::PointingHand);
+            self.site_btn = area;
+            self.site_pos = field.response.rect.left_bottom() + Vec2::new(0.0, 8.0);
+            if r.clicked() {
+                self.site_open = !self.site_open;
+                self.tools_open = false;
+                self.dots_open = false;
+                self.dl_open = false;
+            }
+        } else {
+            self.site_open = false;
+            self.site_btn = egui::Rect::NOTHING;
+        }
         // Лупа слева в строке: при фокусе подсвечивается цветом темы.
-        {
+        if site.is_none() {
             let c = field.response.rect.left_center() + Vec2::new(19.0, -1.0);
             let st = Stroke::new(1.7_f32, mix(Color32::from_rgb(130, 132, 150), link(), glow));
             let p = ui.painter();
@@ -3741,16 +3850,96 @@ impl App {
         let a = self.tools_menu(ctx);
         let b = self.dots_menu(ctx);
         let c = self.downloads_menu(ctx);
+        let d = self.site_menu(ctx);
         let a = a.or(c);
-        if self.tools_open || self.dots_open || self.dl_open {
+        if self.tools_open || self.dots_open || self.dl_open || self.site_open {
             let (pressed, pos, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(Key::Escape)));
-            let inside = |p: egui::Pos2| [a, b].iter().flatten().any(|r| r.contains(p)) || self.menu_btns.iter().any(|r| r.contains(p)) || self.dl_btn.contains(p);
+            let inside = |p: egui::Pos2| [a, b, d].iter().flatten().any(|r| r.contains(p)) || self.menu_btns.iter().any(|r| r.contains(p)) || self.dl_btn.contains(p) || self.site_btn.contains(p);
             if esc || (pressed && pos.is_some_and(|p| !inside(p))) {
                 self.tools_open = false;
                 self.dots_open = false;
                 self.dl_open = false;
+                self.site_open = false;
             }
         }
+    }
+
+    fn site_info(&self) -> Option<(String, bool)> {
+        self.tabs[self.active].url().and_then(|u| store::url_host(&u))
+    }
+
+    /// Карточка замка: безопасность соединения и права сайта (камера, микрофон, геолокация, уведомления).
+    fn site_menu(&mut self, ctx: &egui::Context) -> Option<egui::Rect> {
+        let site = self.site_info();
+        let (host, secure) = site.clone().unwrap_or_default();
+        let open = self.site_open && site.is_some();
+        let rules = perms_snapshot();
+        let block_notif = self.bcfg.block_notifications;
+        let mut change: Option<(&'static str, Option<bool>)> = None;
+        let mut reset = false;
+        let mut clear = false;
+        let card = popup_card(ctx, "site", open, self.site_pos, self.bcfg.sidebar_w as f32 - 20.0, false, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.label(RichText::new(&host).size(15.0).strong().color(Color32::WHITE));
+            let (txt, col) = if secure {
+                ("Соединение защищено (HTTPS)", Color32::from_rgb(110, 214, 150))
+            } else {
+                ("Соединение не защищено (HTTP): данные видны посторонним", Color32::from_rgb(244, 190, 90))
+            };
+            ui.label(RichText::new(txt).size(13.0).color(col));
+            if secure {
+                ui.label(RichText::new("Сертификат проверяет Edge WebView2: при проблеме он сам показывает страницу-предупреждение.").size(11.5).color(MUTED));
+            }
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(4.0);
+            for (key, name) in store::PERM_KINDS {
+                let cur = store::perm_lookup(&rules, &host, key);
+                ui.label(RichText::new(name).size(13.0).color(TEXT));
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let w = ((ui.available_width() - 28.0) / 3.0).floor();
+                    for (label, val) in [("Спросить", None), ("Да", Some(true)), ("Нет", Some(false))] {
+                        let b = egui::Button::new(RichText::new(label).size(12.5)).fill(if cur == val { alpha(accent_b(), 150) } else { Color32::from_rgba_unmultiplied(255, 255, 255, 12) });
+                        if ui.add_sized(Vec2::new(w, 24.0), b).clicked() && cur != val {
+                            change = Some((key, val));
+                        }
+                    }
+                });
+                if key == "notif" && cur.is_none() && block_notif {
+                    ui.label(RichText::new("Сейчас запрещены для всех сайтов (настройки, раздел «Основные»).").size(11.5).color(MUTED));
+                }
+            }
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                if pill_button(ui, "Сбросить права").clicked() {
+                    reset = true;
+                }
+                if pill_button(ui, "Очистить данные сайтов").clicked() {
+                    clear = true;
+                }
+            });
+            ui.label(RichText::new("Новые права действуют после обновления страницы. «Очистить данные» стирает cookie и кэш всех сайтов.").size(11.5).color(MUTED));
+        });
+        if let Some((k, v)) = change {
+            perm_apply(&host, k, v);
+        }
+        if reset {
+            for (k, _) in store::PERM_KINDS {
+                perm_apply(&host, k, None);
+            }
+        }
+        if clear {
+            for t in &self.tabs {
+                if let Some(b) = &t.view {
+                    b.clear_data();
+                }
+            }
+            self.settings_status = "Данные сайтов очищены: из аккаунтов на сайтах придётся войти заново.".to_string();
+        }
+        card
     }
 
     /// Страница ушла на весь экран (кнопка «развернуть» у видео): прячем панели и разворачиваем окно,
@@ -4186,10 +4375,19 @@ impl App {
             section(ui, "Основные");
             ui.checkbox(&mut self.bcfg.restore, "Открывать при запуске вкладки, которые были при закрытии");
             ui.checkbox(&mut self.bcfg.save_history, "Записывать историю посещений");
-            ui.checkbox(&mut self.bcfg.clear_on_exit, "Стирать cookie и кэш сайтов при каждом запуске");
-            note(ui, "С этим пунктом из аккаунтов на сайтах придётся входить заново.");
+            ui.checkbox(&mut self.bcfg.block_notifications, "Блокировать запросы «Разрешить уведомления»");
+            note(ui, "Сайты не смогут даже спросить. Для нужного сайта разрешение можно дать через замок в адресной строке.");
             ui.checkbox(&mut self.bcfg.wipe_incognito, "Стирать данные инкогнито, когда закрыта последняя такая вкладка");
             note(ui, "Cookie и кэш приватных вкладок удаляются сразу, загрузки из них не попадают в список.");
+        });
+
+        card(ui, |ui| {
+            section(ui, "Стирать при закрытии браузера");
+            ui.checkbox(&mut self.bcfg.clear_cookies, "Cookie и данные сайтов");
+            ui.checkbox(&mut self.bcfg.clear_cache, "Кэш");
+            ui.checkbox(&mut self.bcfg.clear_history, "История посещений");
+            ui.checkbox(&mut self.bcfg.clear_passwords, "Пароли и автозаполнение, которые запомнил встроенный браузер");
+            note(ui, "Cookie, кэш и пароли удаляются при следующем запуске Petal, пока профиль не занят; историю стираем сразу при выходе. Хранилище паролей Petal не затрагивается. После очистки cookie из аккаунтов на сайтах придётся входить заново.");
         });
 
         card(ui, |ui| {
@@ -5750,7 +5948,13 @@ impl eframe::App for App {
                 }
             }
         }
-        self.history_tick();
+        if self.bcfg.clear_history {
+            self.history.clear();
+            self.history_dirty = true;
+            store::save_history(&self.history);
+        } else {
+            self.history_tick();
+        }
         self.flush(true);
         self.vault_lock();
     }

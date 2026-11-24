@@ -89,8 +89,13 @@ pub struct BrowserCfg {
     pub block_popups: bool,
     /// Говорить сайтам «не отслеживайте меня» (DNT и GPC).
     pub privacy_signals: bool,
-    /// Стирать cookie и кэш при следующем запуске.
-    pub clear_on_exit: bool,
+    /// Что стирать при закрытии браузера (на деле — при следующем запуске, пока профиль не занят).
+    pub clear_cookies: bool,
+    pub clear_cache: bool,
+    pub clear_history: bool,
+    pub clear_passwords: bool,
+    /// Отказывать всем сайтам в показе уведомлений.
+    pub block_notifications: bool,
     /// Как представляться сайтам: default, chrome, firefox, mobile.
     pub ua: String,
     /// Отключить аппаратное ускорение.
@@ -149,7 +154,11 @@ impl Default for BrowserCfg {
             zoom: 100,
             block_popups: false,
             privacy_signals: true,
-            clear_on_exit: false,
+            clear_cookies: false,
+            clear_cache: false,
+            clear_history: false,
+            clear_passwords: false,
+            block_notifications: true,
             ua: "default".to_string(),
             no_gpu: false,
             webrtc_safe: false,
@@ -301,7 +310,7 @@ pub fn user_agent(id: &str) -> &'static str {
 pub fn cfg_to_text(c: &BrowserCfg) -> String {
     let one = |b: bool| b as u8;
     format!(
-        "restore={}\nsave_history={}\nhome={}\nsearch={}\ndoh={}\ndoh_custom={}\nproxy={}\nzoom={}\nblock_popups={}\nprivacy_signals={}\nclear_on_exit={}\nua={}\nno_gpu={}\nwebrtc_safe={}\ndl_dir={}\nlang={}\ndark_sites={}\ntheme={}\naccent_a={:06x}\naccent_b={:06x}\nui_scale={}\nsidebar_w={}\nanim={}\nglow={}\ncompact_tabs={}\nwallpaper={}\nwallpaper_img={}\nclock={}\nuser_name={}\nextensions={}\nwipe_incognito={}\nauto_update={}\nskip_version={}\n",
+        "restore={}\nsave_history={}\nhome={}\nsearch={}\ndoh={}\ndoh_custom={}\nproxy={}\nzoom={}\nblock_popups={}\nprivacy_signals={}\nclear_cookies={}\nclear_cache={}\nclear_history={}\nclear_passwords={}\nblock_notifications={}\nua={}\nno_gpu={}\nwebrtc_safe={}\ndl_dir={}\nlang={}\ndark_sites={}\ntheme={}\naccent_a={:06x}\naccent_b={:06x}\nui_scale={}\nsidebar_w={}\nanim={}\nglow={}\ncompact_tabs={}\nwallpaper={}\nwallpaper_img={}\nclock={}\nuser_name={}\nextensions={}\nwipe_incognito={}\nauto_update={}\nskip_version={}\n",
         one(c.restore),
         one(c.save_history),
         c.home,
@@ -312,7 +321,11 @@ pub fn cfg_to_text(c: &BrowserCfg) -> String {
         c.zoom,
         one(c.block_popups),
         one(c.privacy_signals),
-        one(c.clear_on_exit),
+        one(c.clear_cookies),
+        one(c.clear_cache),
+        one(c.clear_history),
+        one(c.clear_passwords),
+        one(c.block_notifications),
         c.ua,
         one(c.no_gpu),
         one(c.webrtc_safe),
@@ -376,7 +389,16 @@ pub fn cfg_from_text(s: &str) -> BrowserCfg {
             "zoom" => c.zoom = v.parse::<u32>().unwrap_or(100).clamp(50, 200),
             "block_popups" => c.block_popups = on,
             "privacy_signals" => c.privacy_signals = on,
-            "clear_on_exit" => c.clear_on_exit = on,
+            // Старый единый пункт: стирал cookie и кэш.
+            "clear_on_exit" => {
+                c.clear_cookies = on;
+                c.clear_cache = on;
+            }
+            "clear_cookies" => c.clear_cookies = on,
+            "clear_cache" => c.clear_cache = on,
+            "clear_history" => c.clear_history = on,
+            "clear_passwords" => c.clear_passwords = on,
+            "block_notifications" => c.block_notifications = on,
             "ua" if matches!(v, "default" | "chrome" | "firefox" | "mobile") => c.ua = v.to_string(),
             "no_gpu" => c.no_gpu = on,
             "webrtc_safe" => c.webrtc_safe = on,
@@ -505,6 +527,95 @@ pub fn parse_release(json: &str) -> Option<UpdateInfo> {
         })
         .unwrap_or_default();
     Some(UpdateInfo { version, page, installer })
+}
+
+// ───────────── Права сайтов ─────────────
+
+pub const PERMS_FILE: &str = "petal_perms.txt";
+
+/// Права, которыми можно управлять: ключ и название.
+pub const PERM_KINDS: [(&str, &str); 4] = [("camera", "Камера"), ("mic", "Микрофон"), ("geo", "Геолокация"), ("notif", "Уведомления")];
+
+/// Решение пользователя для сайта: разрешить или запретить. Нет записи — «спрашивать».
+#[derive(Clone, PartialEq, Debug)]
+pub struct PermRule {
+    pub host: String,
+    pub kind: String,
+    pub allow: bool,
+}
+
+pub fn perm_lookup(rules: &[PermRule], host: &str, kind: &str) -> Option<bool> {
+    rules.iter().find(|r| r.host == host && r.kind == kind).map(|r| r.allow)
+}
+
+/// Ставит решение (`None` — вернуть «спрашивать»).
+pub fn perm_set(rules: &mut Vec<PermRule>, host: &str, kind: &str, v: Option<bool>) {
+    rules.retain(|r| !(r.host == host && r.kind == kind));
+    if let Some(allow) = v {
+        if !host.is_empty() && PERM_KINDS.iter().any(|k| k.0 == kind) {
+            rules.push(PermRule { host: host.to_string(), kind: kind.to_string(), allow });
+        }
+    }
+}
+
+pub fn perms_to_text(r: &[PermRule]) -> String {
+    r.iter().map(|x| format!("{}\t{}\t{}\n", x.host, x.kind, if x.allow { "allow" } else { "deny" })).collect()
+}
+
+pub fn perms_from_text(s: &str) -> Vec<PermRule> {
+    let mut out = Vec::new();
+    for l in s.lines() {
+        let f: Vec<&str> = l.split('\t').collect();
+        if f.len() == 3 && !f[0].is_empty() && PERM_KINDS.iter().any(|k| k.0 == f[1]) && matches!(f[2], "allow" | "deny") {
+            perm_set(&mut out, f[0], f[1], Some(f[2] == "allow"));
+        }
+    }
+    out
+}
+
+pub fn load_perms() -> Vec<PermRule> {
+    std::fs::read_to_string(PERMS_FILE).map(|s| perms_from_text(&s)).unwrap_or_default()
+}
+
+/// Итог для запроса сайта: `Some(true)` — разрешить, `Some(false)` — отказать, `None` — оставить вопрос браузеру.
+/// Решение для сайта сильнее общего запрета уведомлений.
+pub fn perm_decision(rules: &[PermRule], host: &str, kind: &str, block_notifications: bool) -> Option<bool> {
+    if let Some(v) = perm_lookup(rules, host, kind) {
+        return Some(v);
+    }
+    (kind == "notif" && block_notifications).then_some(false)
+}
+
+/// Адрес для заголовка замка: `https://www.example.com/a` → (`www.example.com`, true).
+pub fn url_host(url: &str) -> Option<(String, bool)> {
+    let (secure, rest) = if let Some(r) = url.strip_prefix("https://") {
+        (true, r)
+    } else {
+        (false, url.strip_prefix("http://")?)
+    };
+    let host = rest.split(['/', '?', '#']).next()?.rsplit('@').next()?;
+    let host = host.rsplit_once(':').filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit())).map_or(host, |(h, _)| h);
+    (!host.is_empty()).then(|| (host.to_lowercase(), secure))
+}
+
+// ───────────── Что стирать ─────────────
+
+/// Файлы и папки профиля WebView2 (внутри папки `WebView2`), которые нужно удалить для выбранных пунктов.
+pub fn wipe_paths(c: &BrowserCfg) -> Vec<&'static str> {
+    let mut v: Vec<&'static str> = Vec::new();
+    if c.clear_cookies {
+        v.extend(["Network/Cookies", "Network/Cookies-journal", "Cookies", "Cookies-journal", "Local Storage", "Session Storage", "IndexedDB", "Service Worker", "Network/Reporting and NEL"]);
+    }
+    if c.clear_cache {
+        v.extend(["Cache", "Code Cache", "GPUCache", "DawnCache", "Network/Network Persistent State"]);
+    }
+    if c.clear_history {
+        v.extend(["History", "History-journal", "Visited Links", "Top Sites", "Top Sites-journal", "Favicons", "Favicons-journal"]);
+    }
+    if c.clear_passwords {
+        v.extend(["Login Data", "Login Data-journal", "Login Data For Account", "Web Data", "Web Data-journal"]);
+    }
+    v
 }
 
 // ───────────── Папки вкладок ─────────────
@@ -857,7 +968,9 @@ mod tests {
             proxy: "socks5://127.0.0.1:1080".into(),
             zoom: 125,
             block_popups: true,
-            clear_on_exit: true,
+            clear_cookies: true,
+            clear_passwords: true,
+            block_notifications: false,
             ua: "firefox".into(),
             dl_dir: "D:\\Загрузки".into(),
             lang: "en".into(),
@@ -890,6 +1003,32 @@ mod tests {
         assert_eq!(groups_from_text(&groups_to_text(&g), 3), g[..1].to_vec());
         assert!(groups_from_text("0\t2\t0\t0\tA\n1\t2\t0\t0\tB\n", 4).len() == 1);
         assert!(groups_from_text("мусор", 4).is_empty());
+    }
+
+    #[test]
+    fn site_permissions_and_wipe_list() {
+        let mut r = Vec::new();
+        perm_set(&mut r, "a.com", "camera", Some(true));
+        perm_set(&mut r, "a.com", "notif", Some(true));
+        perm_set(&mut r, "a.com", "camera", Some(false));
+        perm_set(&mut r, "b.com", "bogus", Some(true));
+        assert_eq!(r.len(), 2);
+        assert_eq!(perm_lookup(&r, "a.com", "camera"), Some(false));
+        assert_eq!(perms_from_text(&perms_to_text(&r)), r);
+        perm_set(&mut r, "a.com", "camera", None);
+        assert_eq!(perm_lookup(&r, "a.com", "camera"), None);
+        // общий запрет уведомлений, но сайт с явным разрешением его обходит
+        assert_eq!(perm_decision(&r, "a.com", "notif", true), Some(true));
+        assert_eq!(perm_decision(&r, "x.com", "notif", true), Some(false));
+        assert_eq!(perm_decision(&r, "x.com", "notif", false), None);
+        assert_eq!(perm_decision(&r, "x.com", "camera", true), None);
+        assert_eq!(url_host("https://User@Www.Example.com:8443/a?b#c"), Some(("www.example.com".into(), true)));
+        assert_eq!(url_host("http://a.ru"), Some(("a.ru".into(), false)));
+        assert_eq!(url_host("file:///c:/x"), None);
+        let mut c = BrowserCfg::default();
+        assert!(wipe_paths(&c).is_empty());
+        c.clear_passwords = true;
+        assert!(wipe_paths(&c).contains(&"Login Data") && !wipe_paths(&c).contains(&"Cache"));
     }
 
     #[test]
