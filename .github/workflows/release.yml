@@ -19,6 +19,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+<<<<<<< HEAD
+=======
+      - name: Tests
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release
+
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
       - name: Version
         id: ver
         shell: bash
@@ -29,6 +38,7 @@ jobs:
             echo "version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
           fi
 
+<<<<<<< HEAD
       - name: Tests
         run: cargo test --release
 
@@ -37,6 +47,8 @@ jobs:
           PETAL_VERSION: ${{ steps.ver.outputs.version }}
         run: cargo build --release
 
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
       - name: Download WebView2 bootstrapper
         shell: pwsh
         run: |

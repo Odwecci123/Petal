@@ -89,6 +89,7 @@ pub struct BrowserCfg {
     pub block_popups: bool,
     /// Говорить сайтам «не отслеживайте меня» (DNT и GPC).
     pub privacy_signals: bool,
+<<<<<<< HEAD
     /// Что стирать при закрытии браузера (на деле — при следующем запуске, пока профиль не занят).
     pub clear_cookies: bool,
     pub clear_cache: bool,
@@ -96,6 +97,10 @@ pub struct BrowserCfg {
     pub clear_passwords: bool,
     /// Отказывать всем сайтам в показе уведомлений.
     pub block_notifications: bool,
+=======
+    /// Стирать cookie и кэш при следующем запуске.
+    pub clear_on_exit: bool,
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     /// Как представляться сайтам: default, chrome, firefox, mobile.
     pub ua: String,
     /// Отключить аппаратное ускорение.
@@ -133,12 +138,15 @@ pub struct BrowserCfg {
     pub user_name: String,
     /// Разрешить расширения Chrome (распакованные, из папки extensions).
     pub extensions: bool,
+<<<<<<< HEAD
     /// Стирать данные сайтов, когда закрыта последняя вкладка инкогнито.
     pub wipe_incognito: bool,
     /// Проверять обновления при запуске.
     pub auto_update: bool,
     /// Версия, которую пользователь решил пропустить.
     pub skip_version: String,
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
 }
 
 impl Default for BrowserCfg {
@@ -154,11 +162,15 @@ impl Default for BrowserCfg {
             zoom: 100,
             block_popups: false,
             privacy_signals: true,
+<<<<<<< HEAD
             clear_cookies: false,
             clear_cache: false,
             clear_history: false,
             clear_passwords: false,
             block_notifications: true,
+=======
+            clear_on_exit: false,
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             ua: "default".to_string(),
             no_gpu: false,
             webrtc_safe: false,
@@ -178,9 +190,12 @@ impl Default for BrowserCfg {
             clock: true,
             user_name: String::new(),
             extensions: false,
+<<<<<<< HEAD
             wipe_incognito: true,
             auto_update: true,
             skip_version: String::new(),
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         }
     }
 }
@@ -310,7 +325,11 @@ pub fn user_agent(id: &str) -> &'static str {
 pub fn cfg_to_text(c: &BrowserCfg) -> String {
     let one = |b: bool| b as u8;
     format!(
+<<<<<<< HEAD
         "restore={}\nsave_history={}\nhome={}\nsearch={}\ndoh={}\ndoh_custom={}\nproxy={}\nzoom={}\nblock_popups={}\nprivacy_signals={}\nclear_cookies={}\nclear_cache={}\nclear_history={}\nclear_passwords={}\nblock_notifications={}\nua={}\nno_gpu={}\nwebrtc_safe={}\ndl_dir={}\nlang={}\ndark_sites={}\ntheme={}\naccent_a={:06x}\naccent_b={:06x}\nui_scale={}\nsidebar_w={}\nanim={}\nglow={}\ncompact_tabs={}\nwallpaper={}\nwallpaper_img={}\nclock={}\nuser_name={}\nextensions={}\nwipe_incognito={}\nauto_update={}\nskip_version={}\n",
+=======
+        "restore={}\nsave_history={}\nhome={}\nsearch={}\ndoh={}\ndoh_custom={}\nproxy={}\nzoom={}\nblock_popups={}\nprivacy_signals={}\nclear_on_exit={}\nua={}\nno_gpu={}\nwebrtc_safe={}\ndl_dir={}\nlang={}\ndark_sites={}\ntheme={}\naccent_a={:06x}\naccent_b={:06x}\nui_scale={}\nsidebar_w={}\nanim={}\nglow={}\ncompact_tabs={}\nwallpaper={}\nwallpaper_img={}\nclock={}\nuser_name={}\nextensions={}\n",
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         one(c.restore),
         one(c.save_history),
         c.home,
@@ -321,11 +340,15 @@ pub fn cfg_to_text(c: &BrowserCfg) -> String {
         c.zoom,
         one(c.block_popups),
         one(c.privacy_signals),
+<<<<<<< HEAD
         one(c.clear_cookies),
         one(c.clear_cache),
         one(c.clear_history),
         one(c.clear_passwords),
         one(c.block_notifications),
+=======
+        one(c.clear_on_exit),
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         c.ua,
         one(c.no_gpu),
         one(c.webrtc_safe),
@@ -345,9 +368,12 @@ pub fn cfg_to_text(c: &BrowserCfg) -> String {
         one(c.clock),
         c.user_name,
         one(c.extensions),
+<<<<<<< HEAD
         one(c.wipe_incognito),
         one(c.auto_update),
         c.skip_version,
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     )
 }
 
@@ -389,6 +415,7 @@ pub fn cfg_from_text(s: &str) -> BrowserCfg {
             "zoom" => c.zoom = v.parse::<u32>().unwrap_or(100).clamp(50, 200),
             "block_popups" => c.block_popups = on,
             "privacy_signals" => c.privacy_signals = on,
+<<<<<<< HEAD
             // Старый единый пункт: стирал cookie и кэш.
             "clear_on_exit" => {
                 c.clear_cookies = on;
@@ -399,6 +426,9 @@ pub fn cfg_from_text(s: &str) -> BrowserCfg {
             "clear_history" => c.clear_history = on,
             "clear_passwords" => c.clear_passwords = on,
             "block_notifications" => c.block_notifications = on,
+=======
+            "clear_on_exit" => c.clear_on_exit = on,
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             "ua" if matches!(v, "default" | "chrome" | "firefox" | "mobile") => c.ua = v.to_string(),
             "no_gpu" => c.no_gpu = on,
             "webrtc_safe" => c.webrtc_safe = on,
@@ -418,9 +448,12 @@ pub fn cfg_from_text(s: &str) -> BrowserCfg {
             "clock" => c.clock = on,
             "user_name" => c.user_name = v.chars().take(30).collect(),
             "extensions" => c.extensions = on,
+<<<<<<< HEAD
             "wipe_incognito" => c.wipe_incognito = on,
             "auto_update" => c.auto_update = on,
             "skip_version" => c.skip_version = v.chars().take(20).collect(),
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             _ => {}
         }
     }
@@ -476,6 +509,7 @@ pub fn load_session() -> (Vec<String>, usize) {
     std::fs::read_to_string(SESSION_FILE).map(|s| session_from_text(&s)).unwrap_or_default()
 }
 
+<<<<<<< HEAD
 // ───────────── Обновления ─────────────
 
 fn ver_parts(v: &str) -> Vec<u32> {
@@ -661,6 +695,8 @@ pub fn load_groups(tabs: usize) -> Vec<GroupSpec> {
     std::fs::read_to_string(GROUPS_FILE).map(|s| groups_from_text(&s, tabs)).unwrap_or_default()
 }
 
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
 // ───────────── История ─────────────
 
 #[derive(Clone, PartialEq, Debug)]
@@ -968,9 +1004,13 @@ mod tests {
             proxy: "socks5://127.0.0.1:1080".into(),
             zoom: 125,
             block_popups: true,
+<<<<<<< HEAD
             clear_cookies: true,
             clear_passwords: true,
             block_notifications: false,
+=======
+            clear_on_exit: true,
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             ua: "firefox".into(),
             dl_dir: "D:\\Загрузки".into(),
             lang: "en".into(),
@@ -993,6 +1033,7 @@ mod tests {
     }
 
     #[test]
+<<<<<<< HEAD
     fn groups_roundtrip_and_validation() {
         let g = vec![
             GroupSpec { name: "Работа\tи дом".into(), color: 2, collapsed: true, start: 0, len: 2 },
@@ -1048,6 +1089,8 @@ mod tests {
     }
 
     #[test]
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     fn browser_args_follow_settings() {
         let mut c = BrowserCfg::default();
         let base = browser_args(&c);

@@ -45,7 +45,10 @@ Name: "{autodesktop}\Petal"; Filename: "{app}\petal.exe"; Tasks: desktopicon
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Устанавливаю компонент WebView2 (встроенный браузер)..."; Flags: waituntilterminated; Check: NeedsWebView2
 Filename: "{app}\petal.exe"; Description: "{cm:LaunchProgram,Petal}"; Flags: nowait postinstall skipifsilent
+<<<<<<< HEAD
 Filename: "{app}\petal.exe"; Flags: nowait; Check: WizardSilent
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
 
 [Code]
 const

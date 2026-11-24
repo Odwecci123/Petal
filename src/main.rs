@@ -152,6 +152,7 @@ fn list_extensions() -> Vec<(String, String)> {
     v
 }
 
+<<<<<<< HEAD
 /// Версия программы: из тега релиза (его передаёт сборка), а без него из Cargo.toml.
 const APP_VERSION: &str = match option_env!("PETAL_VERSION") {
     Some(v) if !v.is_empty() => v,
@@ -186,6 +187,8 @@ fn download_installer(info: &store::UpdateInfo) -> Result<std::path::PathBuf, St
     Ok(path)
 }
 
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
 /// Скачивает расширение из Chrome Web Store и распаковывает его в папку extensions. Возвращает его название.
 fn install_extension(id: &str) -> Result<String, String> {
     let url = format!(
@@ -623,6 +626,7 @@ static SEARCH_IDX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsi
 static DL_DIR: Mutex<String> = Mutex::new(String::new());
 static ZOOM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
 
+<<<<<<< HEAD
 /// Решения пользователя о правах сайтов; читаются из обработчика запросов страницы.
 static PERMS: Mutex<Vec<store::PermRule>> = Mutex::new(Vec::new());
 static BLOCK_NOTIF: AtomicBool = AtomicBool::new(true);
@@ -660,6 +664,9 @@ fn wipe_profile(c: &store::BrowserCfg) {
 
 fn sync_live(c: &store::BrowserCfg) {
     BLOCK_NOTIF.store(c.block_notifications, Ordering::Relaxed);
+=======
+fn sync_live(c: &store::BrowserCfg) {
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     BLOCK_POPUPS.store(c.block_popups, Ordering::Relaxed);
     ZOOM.store(c.zoom, Ordering::Relaxed);
     SEARCH_IDX.store(store::SEARCH_ENGINES.iter().position(|e| e.0 == c.search).unwrap_or(0), Ordering::Relaxed);
@@ -764,16 +771,23 @@ body.wp-waves .waves{display:block}
 .clk .tm{font-size:84px;font-weight:300;letter-spacing:-2px;line-height:1}
 .clk .gr{margin-top:8px;font-size:18px;color:#c9c9d3}
 .clk .dt{font-size:14px;color:#8d8d98;margin-top:4px;text-transform:capitalize}
+<<<<<<< HEAD
 .bmt{position:relative;z-index:1;display:flex;gap:12px;align-items:center;justify-content:center;margin-top:26px;font-size:13px;animation:up .8s .4s both}
 .bmt a{color:#9a9aa8;cursor:pointer;text-decoration:none;transition:color .2s}.bmt a:hover{color:#fff}.bmt i{width:3px;height:3px;border-radius:50%;background:#5a5a66}
 .bms{position:relative;z-index:1;text-align:center;margin-top:8px;min-height:18px;font-size:13px;color:var(--b)}
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
 body.noanim *,body.noanim::before,body.noanim::after{animation:none!important;transition:none!important}
 </style></head><body class="wp-@@WP@@ @@NOANIM@@"><div class="bg" id="bg"></div><canvas class="sky" id="sky"></canvas><div class="waves"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 50 Q150 10 300 50 T600 50 T900 50 T1200 50 V100 H0Z" fill="var(--a)" fill-opacity=".16"/></svg><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 60 Q150 25 300 60 T600 60 T900 60 T1200 60 V100 H0Z" fill="var(--b)" fill-opacity=".22"/></svg></div><div class="w"><div class="l"><img src="data:image/png;base64,@@LOGO@@" alt=""><span id="nm">Petal</span></div>
 <div class="clk"><div class="tm" id="tm"></div><div class="gr" id="gr"></div><div class="dt" id="dt"></div></div>
 <form id="f"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#9a9aa3" stroke-width="2" stroke-linecap="round"><circle cx="9.5" cy="9.5" r="6.5"/><path d="M14.5 14.5L19 19"/></svg>
 <input id="q" autofocus autocomplete="off" spellcheck="false" placeholder="Найдите в @@ENGINE@@ или введите адрес"></form>
+<<<<<<< HEAD
 <div class="tiles" id="tiles"></div>
 <div class="bmt"><a id="bx">Экспорт закладок</a><i></i><a id="bi">Импорт закладок</a><input type="file" id="bf" accept=".html,.htm,.json" hidden></div><div class="bms" id="bs"></div></div>
+=======
+<div class="tiles" id="tiles"></div></div>
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
 <div id="m"><form id="mf"><h3>Новая закладка</h3><input id="mn" placeholder="Название" autocomplete="off"><input id="mu" placeholder="Адрес сайта, например youtube.com" autocomplete="off" spellcheck="false"><div class="r"><button type="button" id="mc">Отмена</button><button class="ok" type="submit">Добавить</button></div></form></div>
 <script>@@BGJS@@</script>
 <script>
@@ -810,6 +824,7 @@ M.addEventListener('mousedown',function(e){if(e.target===M)closeM();});
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeM();});
 document.getElementById('mf').addEventListener('submit',function(e){e.preventDefault();var u=document.getElementById('mu').value.trim(),n=document.getElementById('mn').value.trim();if(!u)return;if(!/^https?:\/\//i.test(u))u='https://'+u;B.push({n:n||host(u).replace(/^www\./,''),u:u});save(B);draw();closeM();});
 draw();
+<<<<<<< HEAD
 (function(){var S=document.getElementById('bs');function say(t){S.textContent=t;setTimeout(function(){if(S.textContent===t)S.textContent='';},6000);}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 document.getElementById('bx').addEventListener('click',function(){
@@ -824,6 +839,8 @@ var have={};B.forEach(function(b){have[b.u]=1;});var add=0;
 L.forEach(function(x){var u=String(x.u||'').trim();if(!/^https?:\/\//i.test(u)||u.length>2000||have[u])return;have[u]=1;B.push({n:String(x.n||host(u).replace(/^www\./,'')).slice(0,80),u:u});add++;});
 if(add){save(B);draw();}say(add?'Добавлено закладок: '+add+'.':'Новых закладок в файле нет.');};r.onerror=function(){say('Не удалось прочитать файл.');};r.readAsText(f);});
 })();
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
 if(Math.random()<0.0001)document.getElementById('nm').textContent='Vpital';
 (function(){var NAME='@@NAME@@';function z(n){return (n<10?'0':'')+n;}
 function tick(){var d=new Date(),h=d.getHours(),g=h<5?'Доброй ночи':h<12?'Доброе утро':h<18?'Добрый день':'Добрый вечер';
@@ -996,7 +1013,11 @@ mod web {
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
     use std::sync::{Arc, Mutex};
     use wry::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
+<<<<<<< HEAD
     use wry::{NewWindowResponse, PermissionKind, PermissionResponse, Rect, WebView, WebViewBuilder, WebViewBuilderExtWindows};
+=======
+    use wry::{NewWindowResponse, Rect, WebView, WebViewBuilder, WebViewBuilderExtWindows};
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     use super::{store, DlEvent, DL_EVENTS};
 
     const PIP_JS: &str = r##"(function(){if(window.__petalPip)return;window.__petalPip=1;var b=null,v=null,t=0;
@@ -1023,6 +1044,7 @@ document.addEventListener('scroll',function(){if(b&&b.style.display!=='none')pla
 document.addEventListener('fullscreenchange',hide);
 })();"##;
     /// Сообщает, можно ли идти назад и вперёд (1 = назад, 2 = вперёд), чтобы стрелки гасли, когда идти некуда.
+<<<<<<< HEAD
     /// Следит за звуком: ищет играющие video/audio (и в iframe), сообщает «петал:aud:1/0» и умеет глушить.
     const AUDIO_JS: &str = r#"(function(){
 var isTop=window===window.top,muted=false,last=-1,kids=0,seen=[];
@@ -1048,6 +1070,8 @@ setInterval(tick,500);
 })();"#;
     /// Сообщает программе, на каком сайте открыта вкладка (адрес берётся из источника сообщения, а не из текста).
     const HOST_JS: &str = "if(window===window.top){try{window.ipc.postMessage('petal:host');}catch(e){}}";
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     const NAV_JS: &str = "(function(){if(window!==window.top)return;var l=-1;function r(){var v=0;try{if(window.navigation){v=(navigation.canGoBack?1:0)|(navigation.canGoForward?2:0);}else{v=(history.length>1?1:0)|2;}}catch(e){}if(v!==l){l=v;try{window.ipc.postMessage('petal:nav:'+v);}catch(e){}}}setInterval(r,400);r();})();";
     /// Сообщает сайтам «не отслеживайте меня» (Do Not Track и Global Privacy Control).
     const PRIVACY_JS: &str = "(function(){try{Object.defineProperty(navigator,'doNotTrack',{get:function(){return '1';}});Object.defineProperty(navigator,'globalPrivacyControl',{get:function(){return true;}});}catch(e){}})();";
@@ -1077,6 +1101,7 @@ setInterval(tick,500);
             fullscreen: Arc<AtomicBool>,
             pip: Arc<AtomicBool>,
             nav: Arc<AtomicU8>,
+<<<<<<< HEAD
             audio: Arc<AtomicBool>,
         ) -> Result<Self, String> {
             let cfg = super::FROZEN.get().cloned().unwrap_or_default();
@@ -1084,11 +1109,16 @@ setInterval(tick,500);
             let hide_dl = incognito && cfg.wipe_incognito;
             let host_now: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
             let (host_perm, host_ipc) = (host_now.clone(), host_now);
+=======
+        ) -> Result<Self, String> {
+            let cfg = super::FROZEN.get().cloned().unwrap_or_default();
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             let mut builder = WebViewBuilder::new()
                 // Страница сообщает, когда её элемент (например, видео на YouTube) уходит на весь экран.
                 .with_initialization_script(FULLSCREEN_JS)
                 .with_initialization_script(PIP_JS)
                 .with_initialization_script(NAV_JS)
+<<<<<<< HEAD
                 .with_initialization_script(AUDIO_JS)
                 .with_initialization_script(HOST_JS)
                 .with_permission_handler(move |kind| {
@@ -1115,12 +1145,18 @@ setInterval(tick,500);
                             }
                         }
                     }
+=======
+                .with_ipc_handler(move |req| match req.body().as_str() {
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                     "petal:fs:1" => fullscreen.store(true, Ordering::Relaxed),
                     "petal:fs:0" => fullscreen.store(false, Ordering::Relaxed),
                     "petal:pip:1" => pip.store(true, Ordering::Relaxed),
                     "petal:pip:0" => pip.store(false, Ordering::Relaxed),
+<<<<<<< HEAD
                     "petal:aud:1" => audio.store(true, Ordering::Relaxed),
                     "petal:aud:0" => audio.store(false, Ordering::Relaxed),
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                     m => {
                         if let Some(n) = m.strip_prefix("petal:nav:").and_then(|n| n.parse::<u8>().ok()) {
                             nav.store(n, Ordering::Relaxed);
@@ -1132,7 +1168,11 @@ setInterval(tick,500);
                 .with_background_color({ let c = super::page_bg(&url, incognito); (c.r(), c.g(), c.b(), 255) })
                 .with_theme(if cfg.dark_sites { wry::Theme::Dark } else { wry::Theme::Light })
                 .with_additional_browser_args(store::browser_args(&cfg))
+<<<<<<< HEAD
                 .with_download_started_handler(move |url, path| {
+=======
+                .with_download_started_handler(|url, path| {
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                     // Своя папка для загрузок, если выбрана в настройках.
                     if let Ok(dir) = super::DL_DIR.lock() {
                         if !dir.trim().is_empty() {
@@ -1144,6 +1184,7 @@ setInterval(tick,500);
                             }
                         }
                     }
+<<<<<<< HEAD
                     if !hide_dl {
                         if let Ok(mut q) = DL_EVENTS.lock() {
                             q.push(DlEvent::Started { url, path: path.clone() });
@@ -1155,6 +1196,14 @@ setInterval(tick,500);
                     if hide_dl {
                         return;
                     }
+=======
+                    if let Ok(mut q) = DL_EVENTS.lock() {
+                        q.push(DlEvent::Started { url, path: path.clone() });
+                    }
+                    true
+                })
+                .with_download_completed_handler(|url, path, ok| {
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                     if let Ok(mut q) = DL_EVENTS.lock() {
                         q.push(DlEvent::Done { url, path, ok });
                     }
@@ -1226,9 +1275,12 @@ setInterval(tick,500);
         pub fn clear_data(&self) {
             let _ = self.webview.clear_all_browsing_data();
         }
+<<<<<<< HEAD
         pub fn eval(&self, js: &str) {
             let _ = self.webview.evaluate_script(js);
         }
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     }
 }
 
@@ -1250,7 +1302,10 @@ mod web {
             _: Arc<std::sync::atomic::AtomicBool>,
             _: Arc<std::sync::atomic::AtomicBool>,
             _: Arc<std::sync::atomic::AtomicU8>,
+<<<<<<< HEAD
             _: Arc<std::sync::atomic::AtomicBool>,
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         ) -> Result<Self, String> {
             Err("Встроенный браузер работает только в Windows.".to_string())
         }
@@ -1265,7 +1320,10 @@ mod web {
         pub fn focus_parent(&self) {}
         pub fn set_zoom(&self, _: u32) {}
         pub fn clear_data(&self) {}
+<<<<<<< HEAD
         pub fn eval(&self, _: &str) {}
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     }
 }
 
@@ -1805,6 +1863,7 @@ fn raised_base(p: &egui::Painter, rect0: egui::Rect, radius: f32, t: f32, o: f32
 }
 
 /// Линия со скруглёнными концами.
+<<<<<<< HEAD
 /// Значок динамика: волны, когда звук идёт, и крестик, когда выключен.
 fn speaker_icon(p: &egui::Painter, c: egui::Pos2, color: Color32, muted: bool) {
     let st = Stroke::new(1.6_f32, color);
@@ -1833,6 +1892,8 @@ fn speaker_icon(p: &egui::Painter, c: egui::Pos2, color: Color32, muted: bool) {
     }
 }
 
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
 fn round_line(p: &egui::Painter, a: egui::Pos2, b: egui::Pos2, st: Stroke) {
     p.line_segment([a, b], st);
     p.circle_filled(a, st.width / 2.0, st.color);
@@ -2467,6 +2528,7 @@ struct Pane {
     pip: Arc<AtomicBool>,
     /// Можно ли идти назад (бит 1) и вперёд (бит 2).
     nav: Arc<AtomicU8>,
+<<<<<<< HEAD
     /// На странице играет звук.
     audio: Arc<AtomicBool>,
     /// Звук вкладки выключен пользователем.
@@ -2474,6 +2536,8 @@ struct Pane {
     last_mute_push: Option<Instant>,
     /// Папка, в которой лежит вкладка.
     group: Option<u32>,
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     /// Адрес страницы, спрошенный у браузера недавно (спрашивать каждый кадр дорого).
     url_cache: std::cell::RefCell<Option<(Instant, Option<String>)>>,
     /// Вкладка инкогнито: ничего не пишется ни в историю, ни в сессию.
@@ -2499,10 +2563,13 @@ impl Pane {
             fs: Arc::new(AtomicBool::new(false)),
             pip: Arc::new(AtomicBool::new(false)),
             nav: Arc::new(AtomicU8::new(0)),
+<<<<<<< HEAD
             audio: Arc::new(AtomicBool::new(false)),
             muted: false,
             last_mute_push: None,
             group: None,
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             url_cache: std::cell::RefCell::new(None),
             incognito: false,
             logged_url: String::new(),
@@ -2526,7 +2593,11 @@ impl Pane {
         let ppp = ui.ctx().pixels_per_point();
         let bounds = [rect.min.x * ppp, rect.min.y * ppp, rect.width() * ppp, rect.height() * ppp];
         if self.view.is_none() && self.error.is_empty() {
+<<<<<<< HEAD
             match web::Browser::new(frame, &self.start_url, bounds, self.title.clone(), self.new_tx.clone(), self.incognito, self.fs.clone(), self.pip.clone(), self.nav.clone(), self.audio.clone()) {
+=======
+            match web::Browser::new(frame, &self.start_url, bounds, self.title.clone(), self.new_tx.clone(), self.incognito, self.fs.clone(), self.pip.clone(), self.nav.clone()) {
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                 Ok(b) => {
                     self.view = Some(b);
                     self.rect = Some(bounds);
@@ -2648,6 +2719,7 @@ enum TileAction {
 
 type AudioKey = (bool, String, bool, String);
 
+<<<<<<< HEAD
 /// Папка вкладок: её вкладки всегда идут в списке подряд.
 #[derive(Clone)]
 struct TabGroup {
@@ -2697,6 +2769,10 @@ struct App {
     last_groups: String,
     /// Закрытые вкладки инкогнито: страницу держим ещё секунду, пока стираются её данные.
     dying: Vec<(Instant, Pane)>,
+=======
+struct App {
+    tabs: Vec<Pane>,
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     active: usize,
     addr: String,
     addr_focused: bool,
@@ -2715,9 +2791,12 @@ struct App {
     ext_list: Vec<(String, String)>,
     ext_rx: Option<mpsc::Receiver<Result<String, String>>>,
     menu_pos: egui::Pos2,
+<<<<<<< HEAD
     site_open: bool,
     site_pos: egui::Pos2,
     site_btn: egui::Rect,
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     dl_open: bool,
     dl_pos: egui::Pos2,
     dl_btn: egui::Rect,
@@ -2793,17 +2872,25 @@ impl App {
         ACC_B.store(ib, Ordering::Relaxed);
         ANIM_ON.store(bcfg.anim, Ordering::Relaxed);
         write_pages(&bcfg);
+<<<<<<< HEAD
         if let Ok(mut g) = PERMS.lock() {
             *g = store::load_perms();
         }
         // Браузер ещё не запущен, поэтому файлы профиля с выбранными данными ещё не заняты.
         wipe_profile(&bcfg);
+=======
+        if bcfg.clear_on_exit {
+            // Браузер ещё не запущен, поэтому его папку с cookie и кэшем можно стереть целиком.
+            let _ = std::fs::remove_dir_all("WebView2");
+        }
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         let (urls, active) = if bcfg.restore { store::load_session() } else { (Vec::new(), 0) };
         let (tabs, active) = if urls.is_empty() {
             (vec![Pane::new(&new_tab_url(&bcfg.home))], 0)
         } else {
             (urls.iter().map(|u| Pane::new(u)).collect(), active)
         };
+<<<<<<< HEAD
         let mut tabs = tabs;
         let mut groups: Vec<TabGroup> = Vec::new();
         if bcfg.restore && !urls.is_empty() {
@@ -2832,6 +2919,10 @@ impl App {
             grp_focus: false,
             last_groups: String::new(),
             dying: Vec::new(),
+=======
+        let mut app = App {
+            tabs,
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             active,
             addr: String::new(),
             addr_focused: false,
@@ -2848,9 +2939,12 @@ impl App {
             ext_list: list_extensions(),
             ext_rx: None,
             menu_pos: egui::Pos2::ZERO,
+<<<<<<< HEAD
             site_open: false,
             site_pos: egui::Pos2::ZERO,
             site_btn: egui::Rect::NOTHING,
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             dl_open: false,
             dl_pos: egui::Pos2::ZERO,
             dl_btn: egui::Rect::NOTHING,
@@ -2864,7 +2958,11 @@ impl App {
 
             saved_bcfg: bcfg.clone(),
             bcfg,
+<<<<<<< HEAD
             history: if wipe_hist { Vec::new() } else { store::load_history() },
+=======
+            history: store::load_history(),
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             history_dirty: false,
             history_saved_at: Instant::now(),
             hist_search: String::new(),
@@ -2916,9 +3014,12 @@ impl App {
             pass: None,
             players: Vec::new(),
         };
+<<<<<<< HEAD
         if app.bcfg.auto_update {
             app.start_update_check(false);
         }
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         // Клавиши звуков должны работать и при закрытой панели.
         app.sounds_reload();
         if app.cfg.mic_on {
@@ -2942,6 +3043,7 @@ impl App {
         }
     }
 
+<<<<<<< HEAD
     /// Переносит вкладку `from` так, чтобы она оказалась на месте `to` (индекс после удаления), и сохраняет выбор.
     fn move_tab(&mut self, from: usize, to: usize) {
         let to = to.min(self.tabs.len() - 1);
@@ -3044,15 +3146,21 @@ impl App {
         }
     }
 
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     fn close_tab(&mut self, i: usize) {
         if i >= self.tabs.len() {
             return;
         }
+<<<<<<< HEAD
         let gone = self.tabs.remove(i);
         if gone.incognito && self.bcfg.wipe_incognito {
             self.retire_private(gone);
         }
         self.prune_groups();
+=======
+        self.tabs.remove(i);
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         if self.tabs.is_empty() {
             self.tabs.push(Pane::new(&new_tab_url(&self.bcfg.home)));
         }
@@ -3152,6 +3260,7 @@ impl App {
                 go = Some(self.addr.clone());
             }
         });
+<<<<<<< HEAD
         // На сайтах слева в строке замок (по нему открываются права сайта), в остальных местах лупа.
         let site = self.site_info();
         if let Some((_, secure)) = &site {
@@ -3191,6 +3300,10 @@ impl App {
         }
         // Лупа слева в строке: при фокусе подсвечивается цветом темы.
         if site.is_none() {
+=======
+        // Лупа слева в строке: при фокусе подсвечивается цветом темы.
+        {
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             let c = field.response.rect.left_center() + Vec2::new(19.0, -1.0);
             let st = Stroke::new(1.7_f32, mix(Color32::from_rgb(130, 132, 150), link(), glow));
             let p = ui.painter();
@@ -3216,7 +3329,10 @@ impl App {
         let mut select: Option<usize> = None;
         let mut close: Option<usize> = None;
         let mut new_tab = false;
+<<<<<<< HEAD
         let mut tab_act: Option<TabAct> = None;
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         let mut open_downloads = false;
         let active_downloads = self.downloads.iter().filter(|d| d.state == store::DL_ACTIVE).count();
         egui::SidePanel::left("tabs")
@@ -3271,6 +3387,7 @@ impl App {
                         open_downloads = true;
                     }
                 });
+<<<<<<< HEAD
                 // 0 — обновить, 1 — позже, 2 — пропустить эту версию.
                 let mut upd_act: Option<u8> = None;
                 if let Some(u) = self.upd.as_ref().filter(|u| !self.upd_hidden && u.version != self.bcfg.skip_version) {
@@ -3308,10 +3425,13 @@ impl App {
                     }
                     None => {}
                 }
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                 ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let active = i == self.active;
+<<<<<<< HEAD
                         let grp = tab.group.and_then(|g| self.tab_groups.iter().find(|x| x.id == g));
                         if let Some(g) = grp {
                             if i == 0 || self.tabs[i - 1].group != tab.group {
@@ -3389,6 +3509,10 @@ impl App {
                         let sound_on = tab.audio.load(Ordering::Relaxed) || tab.muted;
                         let sound_rect = egui::Rect::from_center_size(close_rect.left_center() - Vec2::new(13.0, 0.0), Vec2::new(24.0, 24.0));
                         let sound_resp = if sound_on { Some(ui.interact(sound_rect, ui.id().with(("snd_tab", i)), Sense::click())) } else { None };
+=======
+                        let (row, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), if self.bcfg.compact_tabs { 34.0 } else { 40.0 }), Sense::click());
+                        let close_rect = egui::Rect::from_center_size(row.right_center() - Vec2::new(16.0, 0.0), Vec2::splat(22.0));
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                         let close_resp = ui.interact(close_rect, ui.id().with(("close_tab", i)), Sense::click());
                         let ht = ui.ctx().abt(resp.id.with("hov"), resp.hovered(), 0.14);
                         let at = ui.ctx().abt(resp.id.with("act"), active, 0.22);
@@ -3422,7 +3546,11 @@ impl App {
                         }
                         let text_rect = egui::Rect::from_min_max(
                             row.left_top() + Vec2::new(40.0, 0.0),
+<<<<<<< HEAD
                             egui::pos2(if sound_on { sound_rect.left() - 1.0 } else { close_rect.left() - 2.0 }, row.bottom()),
+=======
+                            egui::pos2(close_rect.left() - 2.0, row.bottom()),
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                         );
                         p.with_clip_rect(text_rect).text(
                             row.left_center() + Vec2::new(40.0, 0.0),
@@ -3443,6 +3571,7 @@ impl App {
                             FontId::proportional(17.0),
                             alpha(if close_resp.hovered() { TEXT } else { MUTED }, (255.0 * show_x.max(if close_resp.hovered() { 1.0 } else { 0.0 })) as u8),
                         );
+<<<<<<< HEAD
                         if let Some(sr) = &sound_resp {
                             if sr.hovered() {
                                 p.circle_filled(sound_rect.center(), 11.0, Color32::from_rgba_unmultiplied(255, 255, 255, 30));
@@ -3489,6 +3618,9 @@ impl App {
                         if sound_clicked {
                             tab_act = Some(TabAct::Mute(i));
                         } else if close_resp.clicked() || resp.middle_clicked() {
+=======
+                        if close_resp.clicked() || resp.middle_clicked() {
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                             close = Some(i);
                         } else if resp.clicked() {
                             select = Some(i);
@@ -3502,9 +3634,12 @@ impl App {
             self.tools_open = false;
             self.dots_open = false;
         }
+<<<<<<< HEAD
         if let Some(a) = tab_act {
             self.apply_tab_act(a);
         }
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         if new_tab {
             self.open_tab(&new_tab_url(&self.bcfg.home));
         } else if let Some(i) = close {
@@ -3514,6 +3649,7 @@ impl App {
         }
     }
 
+<<<<<<< HEAD
     fn start_update_check(&mut self, manual: bool) {
         if self.upd_rx.is_some() {
             return;
@@ -3668,6 +3804,8 @@ impl App {
         }
     }
 
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     /// Маленькое меню по значку-стикеру: кнопка на каждую функцию.
     fn tools_menu(&mut self, ctx: &egui::Context) -> Option<egui::Rect> {
         let mut picked: Option<usize> = None;
@@ -3850,20 +3988,31 @@ impl App {
         let a = self.tools_menu(ctx);
         let b = self.dots_menu(ctx);
         let c = self.downloads_menu(ctx);
+<<<<<<< HEAD
         let d = self.site_menu(ctx);
         let a = a.or(c);
         if self.tools_open || self.dots_open || self.dl_open || self.site_open {
             let (pressed, pos, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(Key::Escape)));
             let inside = |p: egui::Pos2| [a, b, d].iter().flatten().any(|r| r.contains(p)) || self.menu_btns.iter().any(|r| r.contains(p)) || self.dl_btn.contains(p) || self.site_btn.contains(p);
+=======
+        let a = a.or(c);
+        if self.tools_open || self.dots_open || self.dl_open {
+            let (pressed, pos, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(Key::Escape)));
+            let inside = |p: egui::Pos2| [a, b].iter().flatten().any(|r| r.contains(p)) || self.menu_btns.iter().any(|r| r.contains(p)) || self.dl_btn.contains(p);
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             if esc || (pressed && pos.is_some_and(|p| !inside(p))) {
                 self.tools_open = false;
                 self.dots_open = false;
                 self.dl_open = false;
+<<<<<<< HEAD
                 self.site_open = false;
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
             }
         }
     }
 
+<<<<<<< HEAD
     fn site_info(&self) -> Option<(String, bool)> {
         self.tabs[self.active].url().and_then(|u| store::url_host(&u))
     }
@@ -3942,6 +4091,8 @@ impl App {
         card
     }
 
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     /// Страница ушла на весь экран (кнопка «развернуть» у видео): прячем панели и разворачиваем окно,
     /// чтобы по краям не оставалось полос. Выход из полноэкранного режима страницы возвращает всё назад.
     fn update_page_fullscreen(&mut self, ctx: &egui::Context) {
@@ -4047,6 +4198,7 @@ impl App {
         }
     }
 
+<<<<<<< HEAD
     /// Папки в тех индексах, под которыми вкладки попадут в файл сессии (без инкогнито).
     fn group_specs(&self) -> Vec<store::GroupSpec> {
         let mut out: Vec<store::GroupSpec> = Vec::new();
@@ -4070,6 +4222,8 @@ impl App {
         out
     }
 
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
     fn session_text(&self) -> String {
         let mut urls = Vec::new();
         let mut active = 0;
@@ -4094,6 +4248,7 @@ impl App {
                 self.last_session = text;
             }
         }
+<<<<<<< HEAD
         if self.bcfg.restore {
             let g = self.group_specs();
             let text = store::groups_to_text(&g);
@@ -4106,6 +4261,8 @@ impl App {
                 self.last_groups = text;
             }
         }
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         if self.history_dirty && (force || self.history_saved_at.elapsed() > Duration::from_secs(3)) {
             store::save_history(&self.history);
             self.history_dirty = false;
@@ -4375,6 +4532,7 @@ impl App {
             section(ui, "Основные");
             ui.checkbox(&mut self.bcfg.restore, "Открывать при запуске вкладки, которые были при закрытии");
             ui.checkbox(&mut self.bcfg.save_history, "Записывать историю посещений");
+<<<<<<< HEAD
             ui.checkbox(&mut self.bcfg.block_notifications, "Блокировать запросы «Разрешить уведомления»");
             note(ui, "Сайты не смогут даже спросить. Для нужного сайта разрешение можно дать через замок в адресной строке.");
             ui.checkbox(&mut self.bcfg.wipe_incognito, "Стирать данные инкогнито, когда закрыта последняя такая вкладка");
@@ -4408,6 +4566,10 @@ impl App {
                 ui.label(RichText::new(&self.upd_msg).size(13.0).color(GREEN));
             }
             note(ui, &format!("Сейчас установлена версия {APP_VERSION}. Установленная программа обновляется сама: скачивается новый установщик, Petal закрывается и запускается снова. Переносную версию нужно скачать со страницы релиза."));
+=======
+            ui.checkbox(&mut self.bcfg.clear_on_exit, "Стирать cookie и кэш сайтов при каждом запуске");
+            note(ui, "С этим пунктом из аккаунтов на сайтах придётся входить заново.");
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         });
 
         card(ui, |ui| {
@@ -4576,7 +4738,11 @@ impl App {
                 ui,
                 &format!(
                     "Petal {}. Данные лежат в {}. Вкладки инкогнито ни в историю, ни в сессию не попадают.",
+<<<<<<< HEAD
                     APP_VERSION,
+=======
+                    env!("CARGO_PKG_VERSION"),
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
                     std::env::current_dir().map(|d| d.display().to_string()).unwrap_or_default()
                 ),
             );
@@ -5929,8 +6095,11 @@ impl eframe::App for App {
         if self.tabs.iter().any(|t| t.view.is_some()) {
             ctx.request_repaint_after(Duration::from_millis(500));
         }
+<<<<<<< HEAD
         self.pane_tick(ctx);
         self.poll_updates(ctx);
+=======
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         self.persist_tick();
         if self.cfg != self.saved_cfg {
             save_settings(&self.cfg);
@@ -5939,6 +6108,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+<<<<<<< HEAD
         if self.bcfg.wipe_incognito {
             for t in &self.tabs {
                 if t.incognito {
@@ -5955,6 +6125,9 @@ impl eframe::App for App {
         } else {
             self.history_tick();
         }
+=======
+        self.history_tick();
+>>>>>>> 8545295380960461b55fec532c475d151d4a0f94
         self.flush(true);
         self.vault_lock();
     }
