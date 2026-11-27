@@ -1968,11 +1968,11 @@ fn glow_ring(p: &egui::Painter, rect: egui::Rect, radius: f32, phase: f32, k: f3
         if d > total / 2.0 { d - total } else { d }
     };
     let (ca, cb) = (accent_a(), accent_b());
-    let mut pts = Vec::with_capacity(n + 1);
+    // Точки ободка считаются только там, где свет виден: остальные три четверти кольца пропускаются.
+    let mut pts: Vec<Option<egui::Pos2>> = vec![None; n + 1];
     let mut cols: Vec<[f32; 4]> = Vec::with_capacity(n + 1);
     for i in 0..=n {
         let s = i as f32 / n as f32 * total;
-        pts.push(rim_point(rect, r, s));
         let dw = wrap(s - head) / h;
         let w = if dw < 0.0 { (dw / 0.85).exp() } else { (-(dw / 0.16).powi(2)).exp() };
         let dc = wrap(s - head - lead) / h;
@@ -1991,7 +1991,8 @@ fn glow_ring(p: &egui::Painter, rect: egui::Rect, radius: f32, phase: f32, k: f3
             if m(3) < 3 {
                 continue;
             }
-            p.circle_filled(pts[i], rad, Color32::from_rgba_premultiplied(m(0), m(1), m(2), m(3)));
+            let pt = *pts[i].get_or_insert_with(|| rim_point(rect, r, i as f32 / n as f32 * total));
+            p.circle_filled(pt, rad, Color32::from_rgba_premultiplied(m(0), m(1), m(2), m(3)));
         }
     }
 }
@@ -2005,6 +2006,18 @@ fn bold_text(p: &egui::Painter, pos: egui::Pos2, align: Align2, text: &str, size
     }
 }
 
+/// Ставит следующую перерисовку для непрерывной анимации. В свёрнутом окне анимацию не рисуем совсем,
+/// без фокуса (человек смотрит на страницу) частота не выше 30 кадров в секунду, а в фокусе не выше `ms`.
+fn ambient_repaint(ctx: &egui::Context, ms: u64) {
+    let (minimized, focused) = ctx.input(|i| {
+        let v = i.viewport();
+        (v.minimized.unwrap_or(false), v.focused.unwrap_or(true))
+    });
+    if !minimized {
+        ctx.request_repaint_after(Duration::from_millis(if focused { ms } else { ms.max(33) }));
+    }
+}
+
 /// Режим «всегда»: свет ходит по кнопке сам.
 fn loop_ring(ui: &egui::Ui, rect: egui::Rect, radius: f32, k: f32) {
     if minimal() {
@@ -2013,7 +2026,7 @@ fn loop_ring(ui: &egui::Ui, rect: egui::Rect, radius: f32, k: f32) {
     let anim = ANIM_ON.load(Ordering::Relaxed);
     let now = if anim { ui.input(|i| i.time) as f32 } else { 0.0 };
     if anim {
-        ui.ctx().request_repaint();
+        ambient_repaint(ui.ctx(), 16);
     }
     glow_ring(ui.painter(), rect.shrink(0.5), radius, ring_phase(now / 5.4), k);
 }
@@ -2112,7 +2125,7 @@ fn downloads_button(ui: &mut egui::Ui, active: usize, open: bool) -> egui::Respo
         if seg.width() > 1.0 {
             grad_rrect(p, seg, 1.0, alpha(accent_a(), 0), accent_b(), false);
         }
-        ui.ctx().request_repaint();
+        ambient_repaint(ui.ctx(), 16);
     }
     resp
 }
@@ -3357,7 +3370,7 @@ impl App {
                     radial_glow(ui.painter(), c1, 200.0, alpha(accent_a(), 46));
                     radial_glow(ui.painter(), c2, 230.0, alpha(accent_b(), 42));
                     if self.bcfg.anim {
-                        ui.ctx().request_repaint_after(Duration::from_millis(60));
+                        ambient_repaint(ui.ctx(), 60);
                     }
                 }
                 ui.horizontal(|ui| {
@@ -4072,7 +4085,7 @@ impl App {
                             let w = bar.width() * 0.3;
                             let x = bar.left() + (bar.width() - w) * (0.5 + 0.5 * (time * 3.0).sin());
                             ui.painter().rect_filled(egui::Rect::from_min_size(egui::pos2(x, bar.top()), Vec2::new(w, 5.0)), CornerRadius::same(3), GREEN);
-                            ui.ctx().request_repaint();
+                            ambient_repaint(ui.ctx(), 16);
                         }
                         if d.state == store::DL_DONE && exists {
                             ui.horizontal(|ui| {
@@ -4126,7 +4139,8 @@ impl App {
         let site = self.site_info();
         let (host, secure) = site.clone().unwrap_or_default();
         let open = self.site_open && site.is_some();
-        let rules = perms_snapshot();
+        // Закрытая карточка ничего не рисует и не требует прав: пропускаем работу.
+        let rules = if open { perms_snapshot() } else { Vec::new() };
         let block_notif = self.bcfg.block_notifications;
         let mut change: Option<(&'static str, Option<bool>)> = None;
         let mut reset = false;
@@ -6160,7 +6174,7 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        sync_live(&self.bcfg);
+                sync_live(&self.bcfg);
         if let Some(rx) = &self.ext_rx {
             match rx.try_recv() {
                 Ok(r) => {
